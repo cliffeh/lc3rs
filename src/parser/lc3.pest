@@ -1,0 +1,16 @@
+program = _{ SOI ~ (operation)* ~ EOI }
+
+operation = { (add | and) ~ reg ~ "," ~ reg ~ "," ~ (reg | NUMLIT) }
+
+add = { ^"add" }
+and = { ^"and" }
+
+reg = @{ ^"r" ~ '0'..'7' }
+
+DECLIT = @{ "#" ~ ("0" | "-"? ~ '1'..'9' ~ ('0'..'9')*) }
+HEXDIGIT = @{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+HEXLIT = @{ ^"x" ~ HEXDIGIT{1,4} }
+NUMLIT = { DECLIT | HEXLIT }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT    = _{ ";" ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
