@@ -31,6 +31,16 @@ pub enum Reg {
     Count, /* hax */
 }
 
+pub enum Trap
+{
+  GETC = 0x20, /* get character from keyboard, not echoed */
+  OUT = 0x21,  /* output a character */
+  PUTS = 0x22, /* output a word string */
+  IN = 0x23,   /* get character from keyboard, echoed onto the terminal */
+  PUTSP = 0x24, /* output a byte string */
+  HALT = 0x25   /* halt the program */
+}
+
 pub const MEMORY_MAX: usize = 1 << 16;
 
 pub struct Program {

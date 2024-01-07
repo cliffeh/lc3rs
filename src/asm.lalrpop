@@ -1,20 +1,70 @@
-use lc3::Op;
+use lc3::{Op, Program, Reg, Trap};
+use std::str::FromStr;
 
-grammar;
+grammar(prog: &mut Program);
 
-pub Inst: u16 = {
-    r"(?i)add" => (Op::ADD as u16) << 12,
-    r"(?i)and" => (Op::AND as u16) << 12,
-    r"(?i)brn?z?p?" => {
-        let mut result = (Op::BR as u16) << 12;
+// pub Program: Program = {
+//     r"(?i)\.orig" HexLit 
+// };
+
+pub TestOp: u16 = {
+  <op:ADD> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
+  <op:ADD> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | imm5,
+}
+
+// instructions
+ADD: u16 = r"(?i)ADD" => (Op::ADD as u16) << 12;
+AND: u16 = r"(?i)AND" => (Op::AND as u16) << 12;
+BR:  u16 = {
+    r"(?i)BRn?z?p?" => {
+      let mut result = (Op::BR as u16) << 12;
         for c in <>[2..<>.len()].chars() {
             match c {
                 'n' => result |= 1 << 11,
                 'z' => result |= 1 << 10,
                 'p' => result |= 1 << 9,
-                _ => unreachable!(),
+                _ => unreachable!(), // FIXME
             }
         }
         result
     }
 };
+JMP: u16 = r"(?i)JMP" => (Op::JMP as u16) << 12;
+JSR: u16 = {
+    r"(?i)JSRR?" => {
+        let mut result = (Op::JSR as u16) << 12;
+        if <>.len() == 3 {
+            result |= 1 << 11;
+        }
+        result
+    }
+}
+LD:  u16 = r"(?i)LD"  => (Op::LD as u16)  << 12;
+LDI: u16 = r"(?i)LDI" => (Op::LDI as u16) << 12;
+LDR: u16 = r"(?i)LDR" => (Op::LDR as u16) << 12;
+LEA: u16 = r"(?i)LEA" => (Op::LEA as u16) << 12;
+NOT: u16 = r"(?i)NOT" => (Op::NOT as u16) << 12;
+RET: u16 = r"(?i)RET" => (Op::JMP as u16) << 12 | (Reg::R7 as u16) << 6;
+RTI: u16 = r"(?i)RTI" => (Op::RTI as u16) << 12;
+ST:  u16 = r"(?i)ST"  => (Op::ST as u16)  << 12;
+STI: u16 = r"(?i)STI" => (Op::STI as u16) << 12;
+STR: u16 = r"(?i)STR" => (Op::STR as u16) << 12;
+    
+    // traps
+TRAP:  u16 = r"(?i)TRAP"  => (Op::TRAP as u16) << 12;
+GETC:  u16 = r"(?i)getc"  => (Op::TRAP as u16) << 12 | (Trap::GETC as u16);
+OUT:   u16 = r"(?i)out"   => (Op::TRAP as u16) << 12 | (Trap::OUT as u16);
+PUTS:  u16 = r"(?i)puts"  => (Op::TRAP as u16) << 12 | (Trap::PUTS as u16);
+IN:    u16 = r"(?i)in"    => (Op::TRAP as u16) << 12 | (Trap::IN as u16);
+PUTSP: u16 = r"(?i)putsp" => (Op::TRAP as u16) << 12 | (Trap::PUTSP as u16);
+HALT:  u16 = r"(?i)halt"  => (Op::TRAP as u16) << 12 | (Trap::HALT as u16);
+
+Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
+
+pub NumLit: u16 = {
+    DecLit,
+    HexLit
+};
+
+DecLit: u16 = r"#(0|-?[1-9][0-9]*)" => u16::from_str_radix(&<>, 10).unwrap();
+HexLit: u16 = r"(?i)x[0-9a-fA-F]"   => u16::from_str_radix(&<>, 16).unwrap();
