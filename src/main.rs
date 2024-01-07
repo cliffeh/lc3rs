@@ -5,7 +5,7 @@ use lc3::Program;
 lalrpop_mod!(pub asm);
 
 fn main() {
-    let parser = asm::TestOpParser::new();
+    let parser = asm::InstructionParser::new();
 
     let mut prog = Program::new();
 
