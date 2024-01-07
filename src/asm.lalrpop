@@ -10,9 +10,19 @@ grammar(prog: &mut Program);
 pub Instruction: u16 = {
     // 3 regs, or 2 regs and an imm5
   <op:ADD> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
-  <op:ADD> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | imm5,
+  <op:ADD> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | (imm5 & 0x1f),
   <op:AND> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
-  <op:AND> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | imm5,
+  <op:AND> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | (imm5 & 0x1f),
+
+  // 2 registers and an offset6
+  <op:LDR> <dr:Reg> "," <baser:Reg> "," <offset6:NumLit> => op | dr << 9 | baser << 6 | (offset6 & 0x3f),
+  <op:STR> <dr:Reg> "," <baser:Reg> "," <offset6:NumLit> => op | dr << 9 | baser << 6 | (offset6 & 0x3f),
+
+  // 2 registers
+  <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
+
+  // 1 register and a label or a literal
+  // <op:LD> <r:Reg> "," <label:Label>
 }
 
 // TODO it feels like there should be a better way to resolve ambiguities than this...
@@ -59,7 +69,7 @@ LD:  u16 = r"(?i)LD"  => (Op::LD as u16)  << 12;
 LDI: u16 = r"(?i)LDI" => (Op::LDI as u16) << 12;
 LDR: u16 = r"(?i)LDR" => (Op::LDR as u16) << 12;
 LEA: u16 = r"(?i)LEA" => (Op::LEA as u16) << 12;
-NOT: u16 = r"(?i)NOT" => (Op::NOT as u16) << 12;
+NOT: u16 = r"(?i)NOT" => (Op::NOT as u16) << 12 | 0x3f;
 RET: u16 = r"(?i)RET" => (Op::JMP as u16) << 12 | (Reg::R7 as u16) << 6;
 RTI: u16 = r"(?i)RTI" => (Op::RTI as u16) << 12;
 ST:  u16 = r"(?i)ST"  => (Op::ST as u16)  << 12;
