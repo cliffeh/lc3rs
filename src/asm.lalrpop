@@ -2,6 +2,19 @@ use lc3::Op;
 
 grammar;
 
-pub Inst: Op = {
-    r"(?i)add" => Op::ADD,
+pub Inst: u16 = {
+    r"(?i)add" => (Op::ADD as u16) << 12,
+    r"(?i)and" => (Op::AND as u16) << 12,
+    r"(?i)brn?z?p?" => {
+        let mut result = (Op::BR as u16) << 12;
+        for c in <>[2..<>.len()].chars() {
+            match c {
+                'n' => result |= 1 << 11,
+                'z' => result |= 1 << 10,
+                'p' => result |= 1 << 9,
+                _ => unreachable!(),
+            }
+        }
+        result
+    }
 };
