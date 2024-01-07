@@ -1,10 +1,20 @@
 [package]
-name = "rust-lc3"
+name = "lc3"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "lc3"
+path = "src/lc3.rs"
+
+[[bin]]
+name = "lc3as"
+path = "src/main.rs"
+
 [dependencies]
-pest = "2.7.6"
-pest_derive = "2.7.6"
+lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
+
+[build-dependencies]
+lalrpop = "0.20.0"

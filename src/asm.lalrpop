@@ -1,0 +1,7 @@
+use lc3::Op;
+
+grammar;
+
+pub Inst: Op = {
+    r"(?i)add" => Op::ADD,
+};
