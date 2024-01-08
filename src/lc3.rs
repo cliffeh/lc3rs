@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 pub enum Op {
     BR = 0, /* branch */
     ADD,    /* add  */
@@ -31,14 +33,13 @@ pub enum Reg {
     Count, /* hax */
 }
 
-pub enum Trap
-{
-  GETC = 0x20, /* get character from keyboard, not echoed */
-  OUT = 0x21,  /* output a character */
-  PUTS = 0x22, /* output a word string */
-  IN = 0x23,   /* get character from keyboard, echoed onto the terminal */
-  PUTSP = 0x24, /* output a byte string */
-  HALT = 0x25   /* halt the program */
+pub enum Trap {
+    GETC = 0x20,  /* get character from keyboard, not echoed */
+    OUT = 0x21,   /* output a character */
+    PUTS = 0x22,  /* output a word string */
+    IN = 0x23,    /* get character from keyboard, echoed onto the terminal */
+    PUTSP = 0x24, /* output a byte string */
+    HALT = 0x25,  /* halt the program */
 }
 
 pub const MEMORY_MAX: usize = 1 << 16;
@@ -48,6 +49,8 @@ pub struct Program {
     pub len: u16,
     pub mem: [u16; MEMORY_MAX],
     pub reg: [u16; Reg::Count as usize],
+    pub sym: HashMap<String, u16>,
+    pub refs: HashMap<String, u16>,
 }
 
 impl Program {
@@ -57,6 +60,8 @@ impl Program {
             len: 0,
             mem: [0; MEMORY_MAX],
             reg: [0; Reg::Count as usize],
+            sym: HashMap::new(),
+            refs: HashMap::new(),
         }
     }
 }

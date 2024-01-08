@@ -8,7 +8,7 @@ grammar(prog: &mut Program);
 // };
 
 pub Instruction: u16 = {
-    // 3 regs, or 2 regs and an imm5
+  // 3 regs, or 2 regs and an imm5
   <op:ADD> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
   <op:ADD> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | (imm5 & 0x1f),
   <op:AND> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
@@ -21,16 +21,35 @@ pub Instruction: u16 = {
   // 2 registers
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
-  // 1 register and a label or a literal
-  // <op:LD> <r:Reg> "," <label:Label>
+  // 1 register and a label or a PCoffset9
+  <op:LD> <r:Reg>  "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LD> <r:Reg>  "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LDI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LEA> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:ST> <r:Reg>  "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:ST> <r:Reg>  "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:STI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+
+  // just 1 register
+  <op:JMP> <r:Reg>  => op | r << 6,
+  <op:JSRR> <r:Reg> => op | r << 6,
+
+  // no registers, just a label or a number
+  <op:BR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
+  <op:BR> <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:JSR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
+  <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 }
 
 // TODO it feels like there should be a better way to resolve ambiguities than this...
 match {
-    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSRR?",
-    r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT", r"(?i)RET",
-    r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
-    r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
+    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSR",
+    r"(?i)JSRR", r"(?i)LD", r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",
+    r"(?i)RET", r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", 
+    r"(?i)GETC", r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
     r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]"
 } else {
     _
@@ -55,26 +74,19 @@ BR:  u16 = {
         result
     }
 };
-JMP: u16 = r"(?i)JMP" => (Op::JMP as u16) << 12;
-JSR: u16 = {
-    r"(?i)JSRR?" => {
-        let mut result = (Op::JSR as u16) << 12;
-        if <>.len() == 3 {
-            result |= 1 << 11;
-        }
-        result
-    }
-}
-LD:  u16 = r"(?i)LD"  => (Op::LD as u16)  << 12;
-LDI: u16 = r"(?i)LDI" => (Op::LDI as u16) << 12;
-LDR: u16 = r"(?i)LDR" => (Op::LDR as u16) << 12;
-LEA: u16 = r"(?i)LEA" => (Op::LEA as u16) << 12;
-NOT: u16 = r"(?i)NOT" => (Op::NOT as u16) << 12 | 0x3f;
-RET: u16 = r"(?i)RET" => (Op::JMP as u16) << 12 | (Reg::R7 as u16) << 6;
-RTI: u16 = r"(?i)RTI" => (Op::RTI as u16) << 12;
-ST:  u16 = r"(?i)ST"  => (Op::ST as u16)  << 12;
-STI: u16 = r"(?i)STI" => (Op::STI as u16) << 12;
-STR: u16 = r"(?i)STR" => (Op::STR as u16) << 12;
+JMP:  u16 = r"(?i)JMP"  => (Op::JMP as u16) << 12;
+JSR:  u16 = r"(?i)JSR"  => (Op::JSR as u16) << 12 | 1 << 11;
+JSRR: u16 = r"(?i)JSRR" => (Op::JSR as u16) << 12;
+LD:   u16 = r"(?i)LD"   => (Op::LD as u16)  << 12;
+LDI:  u16 = r"(?i)LDI"  => (Op::LDI as u16) << 12;
+LDR:  u16 = r"(?i)LDR"  => (Op::LDR as u16) << 12;
+LEA:  u16 = r"(?i)LEA"  => (Op::LEA as u16) << 12;
+NOT:  u16 = r"(?i)NOT"  => (Op::NOT as u16) << 12 | 0x3f;
+RET:  u16 = r"(?i)RET"  => (Op::JMP as u16) << 12 | (Reg::R7 as u16) << 6;
+RTI:  u16 = r"(?i)RTI"  => (Op::RTI as u16) << 12;
+ST:   u16 = r"(?i)ST"   => (Op::ST as u16)  << 12;
+STI:  u16 = r"(?i)STI"  => (Op::STI as u16) << 12;
+STR:  u16 = r"(?i)STR"  => (Op::STR as u16) << 12;
     
 // traps
 TRAP:  u16 = r"(?i)TRAP"  => (Op::TRAP as u16) << 12 ;
