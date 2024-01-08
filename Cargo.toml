@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
-unescape = "0.1.0"
 
 [build-dependencies]
 lalrpop = "0.20.0"

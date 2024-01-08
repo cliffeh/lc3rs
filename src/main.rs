@@ -19,9 +19,9 @@ fn main() -> Result<(), Error> {
     parser.parse(&mut prog, input).unwrap();
 
     // DEBUG dump symbol table to stderr
-    for (k, v) in prog.syms.iter() {
-        eprintln!("{}: {:#06x}", k, (prog.orig + v));
-    }
+    //  for (k, v) in prog.syms.iter() {
+    //      eprintln!("{}: {:#06x}", k, (prog.orig + v));
+    //  }
 
     prog.resolve_symbols();
 

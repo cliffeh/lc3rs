@@ -81,7 +81,7 @@ impl Program {
                     match mask {
                         0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
                         _ => {
-                            // want: self.mem[*iaddr] |= (saddr - iaddr - 1) & mask
+                            // self.mem[iaddr] |= (saddr - iaddr - 1) & mask
                             self.mem[*iaddr] |= ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
                     }

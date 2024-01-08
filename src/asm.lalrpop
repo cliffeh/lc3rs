@@ -1,6 +1,5 @@
 use lc3::{Op, Program, Trap};
 use std::str::FromStr;
-use unescape::unescape;
 
 grammar(prog: &mut Program);
 
@@ -12,6 +11,8 @@ match {
     r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
     r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}" // Reg, HexLit
 } else {
+    r"\s*" => { }, // The default whitespace skipping is disabled if an `ignore pattern` is specified
+    r";[^\r\n]*[\r\n]" => {}, // ignore comments
     r"[a-zA-Z][_\-a-zA-Z0-9]*" => LABEL,
     _
 }
@@ -70,14 +71,32 @@ Op: u16 = {
   r"(?i)\.FILL" <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x0); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
   r"(?i)\.STRINGZ" <s:r#""([^"])*""#> => {
-    match unescape(&s[1..s.len()-1]) {
-        Some(u) => {
-            for c in u.chars() {
-                eprintln!("pushing {}", c);
-                prog.mem.push(c as u16);
-            }
-        },
-        None => ()
+    let mut chars = s[1..s.len()-1].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                if let Some(e) = chars.next() {
+                    match e {
+                        'a'  => prog.mem.push(0x07),
+                        'b'  => prog.mem.push(0x08),
+                        'e'  => prog.mem.push(0x1b),
+                        'f'  => prog.mem.push(0x0c),
+                        'n'  => prog.mem.push('\n' as u16),
+                        'r'  => prog.mem.push('\r' as u16),
+                        't'  => prog.mem.push('\t' as u16),
+                        'v'  => prog.mem.push(0x0b),
+                        '\\' => prog.mem.push('\\' as u16),
+                        '?'  => prog.mem.push('?'  as u16),
+                        '\'' => prog.mem.push('\'' as u16),
+                        '"'  => prog.mem.push('"'  as u16),
+                        _    => prog.mem.push(e    as u16),
+                    }
+                } else {
+                    panic!("ran out of characters while parsing escape sequence!"); // FIXME
+                }
+            },
+            _ => prog.mem.push(c as u16),
+        }
     }
     0 // null terminate :-)
   },
@@ -114,7 +133,7 @@ BR:  u16 = {
     }
 };
 JMP:  u16 = r"(?i)JMP"  => (Op::JMP as u16) << 12;
-JSR:  u16 = r"(?i)JSR"  => (Op::JSR as u16) << 12 | 1 << 11;
+JSR:  u16 = r"(?i)JSR"  => (Op::JSR as u16) << 12 | (1 << 11);
 JSRR: u16 = r"(?i)JSRR" => (Op::JSR as u16) << 12;
 LD:   u16 = r"(?i)LD"   => (Op::LD as u16)  << 12;
 LDI:  u16 = r"(?i)LDI"  => (Op::LDI as u16) << 12;
