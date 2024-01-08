@@ -20,6 +20,30 @@ pub enum Op {
     TRAP,   /* execute trap */
 }
 
+impl Op {
+    pub fn from_u16(op: u16) -> Op {
+        match op {
+            0 => Op::BR,
+            1 => Op::ADD,
+            2 => Op::LD,
+            3 => Op::ST,
+            4 => Op::JSR,
+            5 => Op::AND,
+            6 => Op::LDR,
+            7 => Op::STR,
+            8 => Op::RTI,
+            9 => Op::NOT,
+            10 => Op::LDI,
+            11 => Op::STI,
+            12 => Op::JMP,
+            13 => Op::RES,
+            14 => Op::LEA,
+            15 => Op::TRAP,
+            _ => unreachable!("unknown op code {}", op),
+        }
+    }
+}
+
 pub enum Reg {
     R0 = 0,
     R1,
@@ -47,32 +71,26 @@ pub const MEMORY_MAX: usize = 1 << 16;
 
 pub struct Program {
     pub orig: usize,
-    pub len: usize,
-    pub mem: [u16; MEMORY_MAX],
-    pub reg: [u16; Reg::Count as usize],
-    pub syms: HashMap<String, usize>,
+    pub mem: Vec<u16>,
+    pub syms: Vec<String>,
     pub refs: HashMap<String, usize>,
-    pub hint: HashMap<usize, u16>,
 }
 
 impl Program {
     pub fn new() -> Program {
         Program {
             orig: 0x3000,
-            len: 0,
-            mem: [0; MEMORY_MAX],
-            reg: [0; Reg::Count as usize],
-            syms: HashMap::new(),
+            mem: vec![],
+            syms: vec![],
             refs: HashMap::new(),
-            hint: HashMap::new(),
         }
     }
 
     pub fn write(self, out: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += out.write(&u16::to_be_bytes(self.orig as u16))?;
-        for i in 0..self.len {
-            n += out.write(&u16::to_be_bytes(self.mem[self.orig + i]))?;
+        for inst in self.mem {
+            n += out.write(&u16::to_be_bytes(inst))?;
         }
         Ok(n)
     }

@@ -10,38 +10,44 @@ match {
     r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",  r"(?i)RET",
     r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
     r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
-    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}"
+    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}" // DecLit, HexLit
 } else {
+    r"[a-zA-Z][_\-a-zA-Z0-9]*", // Label
     _
 }
 
 pub Program: () = {
-    r"(?i)\.ORIG" <orig:HexLit> <stmts:Statement*> r"(?i)\.END" => {
-        prog.orig = orig as usize;
-        for (k, v) in prog.refs.iter() {
-            if let Some(addr) = prog.syms.get(k) {
-                match prog.mem[*addr] >> 12 {
-                    // (Op::BR as u16) => (),
-                    _ => todo!(),
-                }
-            } else {
-                panic!("unknown label {}", k); // FIXME
-            }
-        }
+     Origin Statement* End => {
+        // TODO resolve symbols
+        ()
+        // for (k, v) in prog.refs.iter() {
+        //     if let Some(addr) = prog.syms.get(k) {
+        //         match prog.mem[*addr] >> 12 {
+        //             // (Op::BR as u16) => (),
+        //             _ => todo!(),
+        //         }
+        //     } else {
+        //         panic!("unknown label {}", k); // FIXME
+        //     }
+        // }
     }
 };
 
+Origin: u16 = r"(?i)\.ORIG" <orig:HexLit> => orig;
+End: () = r"(?i)\.END" => ();
+
 Statement: u16 = {
-    <label:LABEL?> <op:Op> => {
+    <label:Label?> <op:Op> => {
         match label {
             None => (),
-            Some(l) => assert_eq!(prog.syms.insert(l.to_string(), prog.len), None, "duplicate label {}", l),
+            Some(l) => {
+                assert!(!prog.syms.contains(&l), "duplicate label: {}", l);
+                prog.syms.push(l);
+            },
         }
-        prog.mem[prog.orig + prog.len] = op;
-        // println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
-        prog.len += 1;
+        prog.mem.push(op);
         op
-    }
+    } // TODO what if no label?
 }
 
 Op: u16 = {
@@ -59,15 +65,15 @@ Op: u16 = {
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
   // 1 register and a label or a PCoffset9
-  <op:LD>  <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
   <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LDI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
   <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LEA> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
   <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:ST>  <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
   <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:STI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
   // just 1 register
@@ -75,20 +81,19 @@ Op: u16 = {
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
-  <op:BR>  <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
+  <op:BR>  <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op },
   <op:BR>  <pcoffset9:NumLit>  => op | (pcoffset9 & 0x1ff),
-  <op:JSR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
+  <op:JSR> <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 
   // assembler directives
-  r"(?i)\.FILL" <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); 0 },
+  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
   r"(?i)\.STRINGZ" <s:r#""(\"|[^"])*""#> => {
     match unescape(&s[1..s.len()-1]) {
         Some(u) => {
             for c in u.chars() {
-                prog.mem[prog.orig + prog.len] = c as u16;
-                prog.len += 1;
+                prog.mem.push(c as u16);
             }
         },
         None => ()
@@ -150,7 +155,7 @@ IN:    u16 = r"(?i)IN"    => (Op::TRAP as u16) << 12 | (Trap::IN    as u16);
 PUTSP: u16 = r"(?i)PUTSP" => (Op::TRAP as u16) << 12 | (Trap::PUTSP as u16);
 HALT:  u16 = r"(?i)HALT"  => (Op::TRAP as u16) << 12 | (Trap::HALT  as u16);
 
-LABEL: &'input str = r"[a-zA-Z][_\-a-zA-Z0-9]*";
+Label: String = r"[a-zA-Z][_\-a-zA-Z0-9]*" => <>.to_string();
 
 Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
 
