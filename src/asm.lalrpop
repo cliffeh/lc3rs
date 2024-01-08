@@ -3,11 +3,27 @@ use std::str::FromStr;
 
 grammar(prog: &mut Program);
 
-// pub Program: Program = {
-//     r"(?i)\.orig" HexLit 
-// };
+pub Program: () = {
+    r"(?i)\.ORIG" <orig:HexLit> <stmts:Statement*> r"(?i)\.END" => {
+        prog.orig = orig;
+        for stmt in stmts {
+            // do something?
+        }
+    }
+};
 
-pub Instruction: u16 = {
+Statement: () = {
+    <label:LABEL?> <op:Op> => {
+        match label {
+            None => (),
+            Some(l) => assert_eq!(prog.sym.insert(l.to_string(), prog.len), None, "duplicate key {}", l),
+        }
+        println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
+        prog.len += 1;
+    }
+}
+
+Op: u16 = {
   // 3 regs, or 2 regs and an imm5
   <op:ADD> <dr:Reg> "," <sr1:Reg> "," <sr2:Reg>     => op | dr << 9 | sr1 << 6 | sr2,
   <op:ADD> <dr:Reg> "," <sr1:Reg> "," <imm5:NumLit> => op | dr << 9 | sr1 << 6 | 1 << 5 | (imm5 & 0x1f),
@@ -22,14 +38,14 @@ pub Instruction: u16 = {
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
   // 1 register and a label or a PCoffset9
-  <op:LD> <r:Reg>  "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
-  <op:LD> <r:Reg>  "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LD>  <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
   <op:LDI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
   <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
   <op:LEA> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
   <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:ST> <r:Reg>  "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
-  <op:ST> <r:Reg>  "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:ST>  <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
+  <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
   <op:STI> <r:Reg> "," <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op | r << 9 },
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
@@ -38,8 +54,8 @@ pub Instruction: u16 = {
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
-  <op:BR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
-  <op:BR> <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:BR>  <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
+  <op:BR>  <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
   <op:JSR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 
@@ -63,7 +79,7 @@ match {
     r"(?i)JSRR", r"(?i)LD", r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",
     r"(?i)RET", r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", 
     r"(?i)GETC", r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
-    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]"
+    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}"
 } else {
     _
 }
@@ -113,5 +129,5 @@ HALT:  u16 = r"(?i)HALT"  => (Op::TRAP as u16) << 12 | (Trap::HALT  as u16);
 Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
 
 NumLit: u16 = { DecLit, HexLit };
-DecLit: u16 = r"#(0|-?[1-9][0-9]*)" => u16::from_str_radix(&<>, 10).unwrap();
-HexLit: u16 = r"(?i)x[0-9a-fA-F]"   => u16::from_str_radix(&<>, 16).unwrap();
+DecLit: u16 = r"#(0|-?[1-9][0-9]*)" => u16::from_str_radix(&<>[1..<>.len()], 10).unwrap();
+HexLit: u16 = r"(?i)x[0-9a-fA-F]{1,4}"   => u16::from_str_radix(&<>[1..<>.len()], 16).unwrap();
