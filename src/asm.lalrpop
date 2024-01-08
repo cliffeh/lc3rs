@@ -45,15 +45,15 @@ Op: u16 = {
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
   // 1 register and a label or a PCoffset9
-  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
   // just 1 register
@@ -61,24 +61,25 @@ Op: u16 = {
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
-  <op:BR>  <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op },
+  <op:BR>  <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op },
   <op:BR>  <pcoffset9:NumLit>  => op | (pcoffset9 & 0x1ff),
-  <op:JSR> <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x7ff); op },
+  <op:JSR> <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x7ff); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 
   // assembler directives
-  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x0); 0 },
+  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x0); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
-  r"(?i)\.STRINGZ" <s:r#""(\"|[^"])*""#> => {
+  r"(?i)\.STRINGZ" <s:r#""([^"])*""#> => {
     match unescape(&s[1..s.len()-1]) {
         Some(u) => {
             for c in u.chars() {
+                eprintln!("pushing {}", c);
                 prog.mem.push(c as u16);
             }
         },
         None => ()
     }
-    0
+    0 // null terminate :-)
   },
 
   // no arguments at all
@@ -140,5 +141,5 @@ Label: String = LABEL => <>.to_string();
 Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
 
 NumLit: u16 = { DecLit, HexLit };
-DecLit: u16 = r"#(0|-?[1-9][0-9]*)" => u16::from_str_radix(&<>[1..<>.len()], 10).unwrap();
+DecLit: u16 = r"#(0|-?[1-9][0-9]*)" => i16::from_str_radix(&<>[1..<>.len()], 10).unwrap() as u16;
 HexLit: u16 = r"(?i)x[0-9a-fA-F]{1,4}"   => u16::from_str_radix(&<>[1..<>.len()], 16).unwrap();

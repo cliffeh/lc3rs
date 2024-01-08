@@ -59,7 +59,7 @@ pub struct Program {
     pub orig: usize,
     pub mem: Vec<u16>,
     pub syms: HashMap<String, usize>,
-    pub refs: HashMap<String, usize>,
+    pub refs: HashMap<usize, String>,
     pub mask: HashMap<usize, u16>,
 }
 
@@ -75,18 +75,21 @@ impl Program {
     }
 
     pub fn resolve_symbols(&mut self) -> () {
-        for (k, pos) in self.refs.iter() {
-            if let Some(addr) = self.syms.get(k) {
-                if let Some(mask) = self.mask.get(pos) {
+        for (iaddr, label) in self.refs.iter() {
+            if let Some(saddr) = self.syms.get(label) {
+                if let Some(mask) = self.mask.get(iaddr) {
                     match mask {
-                        0 => self.mem[*pos] = (self.orig + addr) as u16, // .FILL
-                        _ => self.mem[*pos] |= (addr - pos - 1) as u16 & mask,
+                        0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
+                        _ => {
+                            // want: self.mem[*iaddr] |= (saddr - iaddr - 1) & mask
+                            self.mem[*iaddr] |= ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
+                        }
                     }
                 } else {
-                    panic!("undefined mask at addr {}", pos);
+                    panic!("undefined mask at addr {}", iaddr);
                 }
             } else {
-                panic!("undefined label: {}", k);
+                panic!("undefined label: {}", label);
             }
         }
     }

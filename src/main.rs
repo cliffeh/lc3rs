@@ -3,7 +3,8 @@ use lc3::Program;
 use std::io::{stdin, stdout, Error, Read};
 use std::str;
 
-lalrpop_mod!(pub asm);
+lalrpop_mod!(#[allow(overflowing_literals)] pub asm);
+// lalrpop_mod!(pub asm);
 
 fn main() -> Result<(), Error> {
     let parser = asm::ProgramParser::new();
@@ -18,9 +19,9 @@ fn main() -> Result<(), Error> {
     parser.parse(&mut prog, input).unwrap();
 
     // DEBUG dump symbol table to stderr
-    // for (k, v) in prog.syms.iter() {
-    //     eprintln!("{}: {:#06x}", k, (prog.orig + v));
-    // }
+    for (k, v) in prog.syms.iter() {
+        eprintln!("{}: {:#06x}", k, (prog.orig + v));
+    }
 
     prog.resolve_symbols();
 
