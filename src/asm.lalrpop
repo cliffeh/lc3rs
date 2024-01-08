@@ -5,7 +5,7 @@ grammar(prog: &mut Program);
 
 pub Program: () = {
     r"(?i)\.ORIG" <orig:HexLit> <stmts:Statement*> r"(?i)\.END" => {
-        prog.orig = orig;
+        prog.orig = orig as usize;
         for stmt in stmts {
             // do something?
         }
@@ -16,9 +16,10 @@ Statement: () = {
     <label:LABEL?> <op:Op> => {
         match label {
             None => (),
-            Some(l) => assert_eq!(prog.sym.insert(l.to_string(), prog.len), None, "duplicate key {}", l),
+            Some(l) => assert_eq!(prog.sym.insert(l.to_string(), prog.len), None, "duplicate label {}", l),
         }
-        println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
+        prog.mem[prog.orig + prog.len] = op;
+        // println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
         prog.len += 1;
     }
 }
@@ -50,14 +51,24 @@ Op: u16 = {
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
   // just 1 register
-  <op:JMP> <r:Reg>  => op | r << 6,
+  <op:JMP>  <r:Reg> => op | r << 6,
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
   <op:BR>  <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
-  <op:BR>  <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:BR>  <pcoffset9:NumLit>  => op | (pcoffset9 & 0x1ff),
   <op:JSR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
+
+  // assembler directives
+  r"(?i)\.FILL" <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); 0 },
+  r"(?i)\.FILL" <n:NumLit>    => n,
+//   r"(?i)\.STRINGZ" <s:r#""([^"])*""#> => {
+//     for c in s.chars() {
+
+//     }
+//   },
+
 
   // no arguments at all
   RET   => <>,
@@ -75,16 +86,14 @@ Op: u16 = {
 
 // TODO it feels like there should be a better way to resolve ambiguities than this...
 match {
-    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSR",
-    r"(?i)JSRR", r"(?i)LD", r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",
-    r"(?i)RET", r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", 
-    r"(?i)GETC", r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
+    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSR", r"(?i)JSRR",
+    r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",  r"(?i)RET",
+    r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
+    r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
     r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}"
 } else {
     _
 }
-
-LABEL: &'input str = r"[a-zA-Z][_\-a-zA-Z0-9]*";
 
 // instructions
 ADD: u16 = r"(?i)ADD" => (Op::ADD as u16) << 12;
@@ -125,6 +134,8 @@ PUTS:  u16 = r"(?i)PUTS"  => (Op::TRAP as u16) << 12 | (Trap::PUTS  as u16);
 IN:    u16 = r"(?i)IN"    => (Op::TRAP as u16) << 12 | (Trap::IN    as u16);
 PUTSP: u16 = r"(?i)PUTSP" => (Op::TRAP as u16) << 12 | (Trap::PUTSP as u16);
 HALT:  u16 = r"(?i)HALT"  => (Op::TRAP as u16) << 12 | (Trap::HALT  as u16);
+
+LABEL: &'input str = r"[a-zA-Z][_\-a-zA-Z0-9]*";
 
 Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
 

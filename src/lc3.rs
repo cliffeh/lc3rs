@@ -45,12 +45,12 @@ pub enum Trap {
 pub const MEMORY_MAX: usize = 1 << 16;
 
 pub struct Program {
-    pub orig: u16,
-    pub len: u16,
+    pub orig: usize,
+    pub len: usize,
     pub mem: [u16; MEMORY_MAX],
     pub reg: [u16; Reg::Count as usize],
-    pub sym: HashMap<String, u16>,
-    pub refs: HashMap<String, u16>,
+    pub sym: HashMap<String, usize>,
+    pub refs: HashMap<String, usize>,
 }
 
 impl Program {
