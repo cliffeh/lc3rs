@@ -18,13 +18,20 @@ match {
 pub Program: () = {
     r"(?i)\.ORIG" <orig:HexLit> <stmts:Statement*> r"(?i)\.END" => {
         prog.orig = orig as usize;
-        for stmt in stmts {
-            // do something?
+        for (k, v) in prog.refs.iter() {
+            if let Some(addr) = prog.syms.get(k) {
+                match prog.mem[*addr] >> 12 {
+                    // (Op::BR as u16) => (),
+                    _ => todo!(),
+                }
+            } else {
+                panic!("unknown label {}", k); // FIXME
+            }
         }
     }
 };
 
-Statement: () = {
+Statement: u16 = {
     <label:LABEL?> <op:Op> => {
         match label {
             None => (),
@@ -33,6 +40,7 @@ Statement: () = {
         prog.mem[prog.orig + prog.len] = op;
         // println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
         prog.len += 1;
+        op
     }
 }
 
