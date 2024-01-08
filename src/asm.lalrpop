@@ -1,4 +1,4 @@
-use lc3::{Op, Program, Reg, Trap};
+use lc3::{Op, Program, Trap};
 use std::str::FromStr;
 use unescape::unescape;
 
@@ -16,22 +16,7 @@ match {
     _
 }
 
-pub Program: () = {
-     Origin Statement* End => {
-        // TODO resolve symbols
-        ()
-        // for (k, v) in prog.refs.iter() {
-        //     if let Some(addr) = prog.syms.get(k) {
-        //         match prog.mem[*addr] >> 12 {
-        //             // (Op::BR as u16) => (),
-        //             _ => todo!(),
-        //         }
-        //     } else {
-        //         panic!("unknown label {}", k); // FIXME
-        //     }
-        // }
-    }
-};
+pub Program: () = <orig:Origin> Statement* End => prog.orig = orig as usize;
 
 Origin: u16 = r"(?i)\.ORIG" <orig:HexLit> => orig;
 End: () = r"(?i)\.END" => ();
@@ -41,13 +26,13 @@ Statement: u16 = {
         match label {
             None => (),
             Some(l) => {
-                assert!(!prog.syms.contains(&l), "duplicate label: {}", l);
-                prog.syms.push(l);
+                assert!(!prog.syms.contains_key(&l), "duplicate label: {}", l);
+                prog.syms.insert(l, prog.mem.len());
             },
         }
         prog.mem.push(op);
         op
-    } // TODO what if no label?
+    }
 }
 
 Op: u16 = {
@@ -65,15 +50,15 @@ Op: u16 = {
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
   // 1 register and a label or a PCoffset9
-  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
+  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
+  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
+  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
+  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op | r << 9 },
+  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
   // just 1 register
@@ -81,13 +66,13 @@ Op: u16 = {
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
-  <op:BR>  <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op },
+  <op:BR>  <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x1ff); op },
   <op:BR>  <pcoffset9:NumLit>  => op | (pcoffset9 & 0x1ff),
-  <op:JSR> <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); op },
+  <op:JSR> <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x7ff); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 
   // assembler directives
-  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); 0 },
+  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(label.to_string(), prog.mem.len()); prog.mask.insert(prog.mem.len(), 0x0); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
   r"(?i)\.STRINGZ" <s:r#""(\"|[^"])*""#> => {
     match unescape(&s[1..s.len()-1]) {
@@ -140,7 +125,7 @@ LDI:  u16 = r"(?i)LDI"  => (Op::LDI as u16) << 12;
 LDR:  u16 = r"(?i)LDR"  => (Op::LDR as u16) << 12;
 LEA:  u16 = r"(?i)LEA"  => (Op::LEA as u16) << 12;
 NOT:  u16 = r"(?i)NOT"  => (Op::NOT as u16) << 12 | 0x3f;
-RET:  u16 = r"(?i)RET"  => (Op::JMP as u16) << 12 | (Reg::R7 as u16) << 6;
+RET:  u16 = r"(?i)RET"  => (Op::JMP as u16) << 12 | (7 << 6);
 RTI:  u16 = r"(?i)RTI"  => (Op::RTI as u16) << 12;
 ST:   u16 = r"(?i)ST"   => (Op::ST as u16)  << 12;
 STI:  u16 = r"(?i)STI"  => (Op::STI as u16) << 12;

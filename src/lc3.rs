@@ -44,20 +44,6 @@ impl Op {
     }
 }
 
-pub enum Reg {
-    R0 = 0,
-    R1,
-    R2,
-    R3,
-    R4,
-    R5,
-    R6,
-    R7,
-    PC, /* program counter */
-    COND,
-    Count, /* hax */
-}
-
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -72,17 +58,19 @@ pub const MEMORY_MAX: usize = 1 << 16;
 pub struct Program {
     pub orig: usize,
     pub mem: Vec<u16>,
-    pub syms: Vec<String>,
+    pub syms: HashMap<String, usize>,
     pub refs: HashMap<String, usize>,
+    pub mask: HashMap<usize, u16>,
 }
 
 impl Program {
     pub fn new() -> Program {
         Program {
-            orig: 0x3000,
+            orig: 0x0, // NB using 0x3000 as a default masks errors...
             mem: vec![],
-            syms: vec![],
+            syms: HashMap::new(),
             refs: HashMap::new(),
+            mask: HashMap::new(),
         }
     }
 
