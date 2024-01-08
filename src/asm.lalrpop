@@ -42,6 +42,19 @@ pub Instruction: u16 = {
   <op:BR> <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
   <op:JSR> <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
+
+  // no arguments at all
+  RET   => <>,
+  RTI   => <>,
+
+  // traps
+  <op:TRAP> <trapvect8:NumLit> => op | (trapvect8 & 0xff),
+  GETC  => <>,
+  OUT   => <>,
+  PUTS  => <>,
+  IN    => <>,
+  PUTSP => <>,
+  HALT  => <>,
 }
 
 // TODO it feels like there should be a better way to resolve ambiguities than this...
