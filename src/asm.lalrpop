@@ -10,9 +10,9 @@ match {
     r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",  r"(?i)RET",
     r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
     r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
-    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}" // DecLit, HexLit
+    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}" // Reg, HexLit
 } else {
-    r"[a-zA-Z][_\-a-zA-Z0-9]*", // Label
+    r"[a-zA-Z][_\-a-zA-Z0-9]*" => LABEL,
     _
 }
 
@@ -21,18 +21,13 @@ pub Program: () = <orig:Origin> Statement* End => prog.orig = orig as usize;
 Origin: u16 = r"(?i)\.ORIG" <orig:HexLit> => orig;
 End: () = r"(?i)\.END" => ();
 
-Statement: u16 = {
-    <label:Label?> <op:Op> => {
-        match label {
-            None => (),
-            Some(l) => {
-                assert!(!prog.syms.contains_key(&l), "duplicate label: {}", l);
-                prog.syms.insert(l, prog.mem.len());
-            },
-        }
-        prog.mem.push(op);
-        op
-    }
+Statement: () = {
+    <label:Label> => {
+        assert!(!prog.syms.contains_key(&label), "duplicate label: {}", label);
+        // eprintln!("setting key {} to addr {}", label, prog.mem.len());
+        prog.syms.insert(label, prog.mem.len());
+    },
+    <op:Op> => prog.mem.push(op),
 }
 
 Op: u16 = {
@@ -140,7 +135,7 @@ IN:    u16 = r"(?i)IN"    => (Op::TRAP as u16) << 12 | (Trap::IN    as u16);
 PUTSP: u16 = r"(?i)PUTSP" => (Op::TRAP as u16) << 12 | (Trap::PUTSP as u16);
 HALT:  u16 = r"(?i)HALT"  => (Op::TRAP as u16) << 12 | (Trap::HALT  as u16);
 
-Label: String = r"[a-zA-Z][_\-a-zA-Z0-9]*" => <>.to_string();
+Label: String = LABEL => <>.to_string();
 
 Reg: u16 = r"(?i)r[0-7]" => u16::from_str(&<>[1..<>.len()]).unwrap();
 

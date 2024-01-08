@@ -74,6 +74,23 @@ impl Program {
         }
     }
 
+    pub fn resolve_symbols(&mut self) -> () {
+        for (k, pos) in self.refs.iter() {
+            if let Some(addr) = self.syms.get(k) {
+                if let Some(mask) = self.mask.get(pos) {
+                    match mask {
+                        0 => self.mem[*pos] = (self.orig + addr) as u16, // .FILL
+                        _ => self.mem[*pos] |= (addr - pos - 1) as u16 & mask,
+                    }
+                } else {
+                    panic!("undefined mask at addr {}", pos);
+                }
+            } else {
+                panic!("undefined label: {}", k);
+            }
+        }
+    }
+
     pub fn write(self, out: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += out.write(&u16::to_be_bytes(self.orig as u16))?;

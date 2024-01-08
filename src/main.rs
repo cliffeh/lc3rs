@@ -1,6 +1,6 @@
 use lalrpop_util::lalrpop_mod;
 use lc3::Program;
-use std::io::{Error, Read,stdin,stdout};
+use std::io::{stdin, stdout, Error, Read};
 use std::str;
 
 lalrpop_mod!(pub asm);
@@ -16,6 +16,13 @@ fn main() -> Result<(), Error> {
     let input = str::from_utf8(&buffer).unwrap();
 
     parser.parse(&mut prog, input).unwrap();
+
+    // DEBUG dump symbol table to stderr
+    // for (k, v) in prog.syms.iter() {
+    //     eprintln!("{}: {:#06x}", k, (prog.orig + v));
+    // }
+
+    prog.resolve_symbols();
 
     prog.write(&mut stdout())?;
 
