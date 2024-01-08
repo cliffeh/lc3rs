@@ -1,7 +1,19 @@
 use lc3::{Op, Program, Reg, Trap};
 use std::str::FromStr;
+use unescape::unescape;
 
 grammar(prog: &mut Program);
+
+// TODO it feels like there should be a better way to resolve ambiguities than this...
+match {
+    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSR", r"(?i)JSRR",
+    r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",  r"(?i)RET",
+    r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
+    r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
+    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}"
+} else {
+    _
+}
 
 pub Program: () = {
     r"(?i)\.ORIG" <orig:HexLit> <stmts:Statement*> r"(?i)\.END" => {
@@ -16,7 +28,7 @@ Statement: () = {
     <label:LABEL?> <op:Op> => {
         match label {
             None => (),
-            Some(l) => assert_eq!(prog.sym.insert(l.to_string(), prog.len), None, "duplicate label {}", l),
+            Some(l) => assert_eq!(prog.syms.insert(l.to_string(), prog.len), None, "duplicate label {}", l),
         }
         prog.mem[prog.orig + prog.len] = op;
         // println!("got op at addr {:#06x}: {:#06x}", (prog.orig+prog.len), op);
@@ -63,12 +75,18 @@ Op: u16 = {
   // assembler directives
   r"(?i)\.FILL" <label:LABEL> => { prog.refs.insert(label.to_string(), prog.len); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
-//   r"(?i)\.STRINGZ" <s:r#""([^"])*""#> => {
-//     for c in s.chars() {
-
-//     }
-//   },
-
+  r"(?i)\.STRINGZ" <s:r#""(\"|[^"])*""#> => {
+    match unescape(&s[1..s.len()-1]) {
+        Some(u) => {
+            for c in u.chars() {
+                prog.mem[prog.orig + prog.len] = c as u16;
+                prog.len += 1;
+            }
+        },
+        None => ()
+    }
+    0
+  },
 
   // no arguments at all
   RET   => <>,
@@ -82,17 +100,6 @@ Op: u16 = {
   IN    => <>,
   PUTSP => <>,
   HALT  => <>,
-}
-
-// TODO it feels like there should be a better way to resolve ambiguities than this...
-match {
-    r"(?i)ADD", r"(?i)AND", r"(?i)BRn?z?p?", r"(?i)JMP", r"(?i)JSR", r"(?i)JSRR",
-    r"(?i)LD",  r"(?i)LDI", r"(?i)LDR", r"(?i)LEA", r"(?i)NOT",  r"(?i)RET",
-    r"(?i)RTI", r"(?i)ST",  r"(?i)STI", r"(?i)STR", r"(?i)TRAP", r"(?i)GETC",
-    r"(?i)OUT", r"(?i)PUTS", r"(?i)IN", r"(?i)PUTSP", r"(?i)HALT",
-    r"(?i)r[0-7]", r"(?i)x[0-9a-fA-F]{1,4}"
-} else {
-    _
 }
 
 // instructions

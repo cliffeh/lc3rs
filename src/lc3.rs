@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{Error, Write};
 
 pub enum Op {
     BR = 0, /* branch */
@@ -49,8 +50,9 @@ pub struct Program {
     pub len: usize,
     pub mem: [u16; MEMORY_MAX],
     pub reg: [u16; Reg::Count as usize],
-    pub sym: HashMap<String, usize>,
+    pub syms: HashMap<String, usize>,
     pub refs: HashMap<String, usize>,
+    pub hint: HashMap<usize, u16>,
 }
 
 impl Program {
@@ -60,8 +62,18 @@ impl Program {
             len: 0,
             mem: [0; MEMORY_MAX],
             reg: [0; Reg::Count as usize],
-            sym: HashMap::new(),
+            syms: HashMap::new(),
             refs: HashMap::new(),
+            hint: HashMap::new(),
         }
+    }
+
+    pub fn write(self, out: &mut dyn Write) -> Result<usize, Error> {
+        let mut n: usize = 0;
+        n += out.write(&u16::to_be_bytes(self.orig as u16))?;
+        for i in 0..self.len {
+            n += out.write(&u16::to_be_bytes(self.mem[self.orig + i]))?;
+        }
+        Ok(n)
     }
 }

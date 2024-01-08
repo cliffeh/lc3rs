@@ -1,6 +1,7 @@
 use lalrpop_util::lalrpop_mod;
-
 use lc3::Program;
+use std::io::{Read,stdin,stdout};
+use std::str;
 
 lalrpop_mod!(pub asm);
 
@@ -9,16 +10,19 @@ fn main() {
 
     let mut prog = Program::new();
 
-    parser
-        .parse(
-            &mut prog,
-            ".orig x3000\n.fill x4000\nadd r0, r1, r2\ntest_label and r3, r4, r5\n.end",
-        )
-        .unwrap();
+    // let input = ".orig x3000\n.fill x4000\nadd r0, r1, r2\ntest_label and r3, r4, r5\n.end";
+    let mut buffer = Vec::new();
+    stdin().read_to_end(&mut buffer);
+    let input = str::from_utf8(&buffer).unwrap();
 
-    for i in 0..prog.len {
-        let addr = (prog.orig + i) as usize;
-        println!("{:#06x}: {:#06x}", addr, prog.mem[addr]);
-    }
+
+    parser.parse(&mut prog, input).unwrap();
+
+    prog.write(&mut stdout());
+
+    // for i in 0..prog.len {
+    //     let addr = (prog.orig + i) as usize;
+    //     println!("{:#06x}: {:#06x}", addr, prog.mem[addr]);
+    // }
     // println!("got: {}", op as u16);
 }
