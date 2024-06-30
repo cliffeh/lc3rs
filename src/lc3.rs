@@ -4,11 +4,21 @@ use std::io::{Error, Write};
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
-#[repr(u16)]
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"([ \t\r\n]+|;.*)")] // ignore whitespace and comments
 pub enum Token {
-    // op codes
+    /* op codes */
+    /// ```
+    /// use logos::Logos;
+    /// assert_eq!(lc3::Token::lexer("BR").next(), Some(Ok(lc3::Token::BR(7<<9))));
+    /// assert_eq!(lc3::Token::lexer("BRnzp").next(), Some(Ok(lc3::Token::BR(7<<9))));
+    /// assert_eq!(lc3::Token::lexer("BRn").next(), Some(Ok(lc3::Token::BR(1<<11))));
+    /// assert_eq!(lc3::Token::lexer("BRz").next(), Some(Ok(lc3::Token::BR(1<<10))));
+    /// assert_eq!(lc3::Token::lexer("BRp").next(), Some(Ok(lc3::Token::BR(1<<9))));
+    /// assert_eq!(lc3::Token::lexer("BRnz").next(), Some(Ok(lc3::Token::BR(1<<11|1<<10))));
+    /// assert_eq!(lc3::Token::lexer("BRnp").next(), Some(Ok(lc3::Token::BR(1<<11|1<<9))));
+    /// assert_eq!(lc3::Token::lexer("BRzp").next(), Some(Ok(lc3::Token::BR(1<<10|1<<9))));
+    /// ```
     #[regex(r"BRn?z?p?",
      callback = |lex| {
         let mut flags: u16 = 0;
@@ -27,7 +37,7 @@ pub enum Token {
         }
         flags
     }, ignore(ascii_case))]
-    BR(u16) = 0, /* branch */
+    BR(u16), /* branch */
     #[token("ADD", |_| 1 << 12, ignore(ascii_case))]
     ADD(u16), /* add  */
     #[token("LD", |_| 2 << 12, ignore(ascii_case))]
@@ -36,6 +46,8 @@ pub enum Token {
     ST(u16), /* store */
     #[token("JSR", |_| 4 << 12 | 1 << 11, ignore(ascii_case))]
     JSR(u16), /* jump register */
+    #[token("JSRR", |_| 4 << 12, ignore(ascii_case))]
+    JSRR(u16), /* JSR, but takes a register argument */
     #[token("AND", |_| 5 << 12, ignore(ascii_case))]
     AND(u16), /* bitwise and */
     #[token("LDR", |_| 6 << 12, ignore(ascii_case))]
@@ -52,6 +64,8 @@ pub enum Token {
     STI(u16), /* store indirect */
     #[token("JMP", |_| 12 << 12, ignore(ascii_case))]
     JMP(u16), /* jump */
+    #[token("RET", |_| 12 << 12 | 7 << 6, ignore(ascii_case))]
+    RET(u16), /* equivalent to JMP R7 */
     #[token("RES", |_| 13 << 12, ignore(ascii_case))]
     RES(u16), /* reserved (unused) */
     #[token("LEA", |_| 14 << 12, ignore(ascii_case))]
@@ -59,25 +73,19 @@ pub enum Token {
     #[token("TRAP", |_| 15 << 12, ignore(ascii_case))]
     TRAP(u16), /* execute trap */
 
-    // alternative ops
-    #[token("RET", |_| 12 << 12 | 7 << 6, ignore(ascii_case))]
-    RET(u16), /* equivalent to JMP R7 */
-    #[token("JSRR", |_| 4 << 12, ignore(ascii_case))]
-    JSRR(u16), /* JSR, but takes a register argument */
-
     // traps
     #[token("GETC", |_| 15 << 12 | 0x20, ignore(ascii_case))]
-    GETC(u16) = 0x20, /* get character from keyboard, not echoed */
+    GETC(u16), /* get character from keyboard, not echoed */
     #[token("OUT", |_| 15 << 12 | 0x21, ignore(ascii_case))]
-    OUT(u16) = 0x21,   /* output a character */
+    OUT(u16), /* output a character */
     #[token("PUTS", |_| 15 << 12 | 0x22, ignore(ascii_case))]
-    PUTS(u16) = 0x22,  /* output a word string */
+    PUTS(u16), /* output a word string */
     #[token("IN", |_| 15 << 12 | 0x23, ignore(ascii_case))]
-    IN(u16) = 0x23,    /* get character from keyboard, echoed onto the terminal */
+    IN(u16), /* get character from keyboard, echoed onto the terminal */
     #[token("PUTSP", |_| 15 << 12 | 0x24, ignore(ascii_case))]
-    PUTSP(u16) = 0x24, /* output a byte string */
+    PUTSP(u16), /* output a byte string */
     #[token("HALT", |_| 15 << 12 | 0x25, ignore(ascii_case))]
-    HALT(u16) = 0x25,  /* halt the program */
+    HALT(u16), /* halt the program */
 
     // registers
     #[regex("R[0-7]", callback = |lex| {
