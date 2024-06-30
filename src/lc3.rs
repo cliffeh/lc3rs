@@ -4,14 +4,15 @@ use std::io::{Error, Write};
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
-#[derive(Logos, Debug, PartialEq)]
 #[repr(u16)]
+#[derive(Logos, Debug, PartialEq)]
+#[logos(skip r"([ \t\r\n]+|;.*)")] // ignore whitespace and comments
 pub enum Token {
     // op codes
-    #[regex("BRn?z?p?",
-     callback = |lex| { 
+    #[regex(r"BRn?z?p?",
+     callback = |lex| {
         let mut flags: u16 = 0;
-        for c in lex.source()[2..].chars() {
+        for c in lex.slice()[2..].chars() {
             match c {
                 'n' | 'N' => flags |= 1 << 11,
                 'z' | 'Z' => flags |= 1 << 10,
@@ -80,7 +81,7 @@ pub enum Token {
 
     // registers
     #[regex("R[0-7]", callback = |lex| {
-        (lex.source().as_bytes()[1] - b'0') as u16
+        (lex.slice().as_bytes()[1] - b'0') as u16
     },
     ignore(ascii_case))]
     REG(u16),
@@ -94,6 +95,22 @@ pub enum Token {
     STRINGZ, /* ascii string literal */
     #[token(".END", ignore(ascii_case))]
     END, /* end of program */
+
+    // literals
+    #[regex(r"#-?[0-9]+", |lex| i16::from_str_radix(&lex.slice()[1..], 10).ok())]
+    DecLit(i16),
+    #[regex(r"[xX][0-9a-fA-F]+", |lex| u16::from_str_radix(&lex.slice()[1..], 16).ok())]
+    HexLit(u16), // TODO allow negative hex literals?
+    #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].to_string())]
+    StrLit(String),
+
+    // labels
+    #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
+    Label(String),
+
+    // punctuation
+    #[token(",")]
+    Comma,
 }
 
 pub struct Program {
