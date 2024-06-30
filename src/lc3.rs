@@ -1,59 +1,100 @@
+use logos::Logos;
 use std::collections::HashMap;
 use std::io::{Error, Write};
 
-pub enum Op {
-    BR = 0, /* branch */
-    ADD,    /* add  */
-    LD,     /* load */
-    ST,     /* store */
-    JSR,    /* jump register */
-    AND,    /* bitwise and */
-    LDR,    /* load register */
-    STR,    /* store register */
-    RTI,    /* unused */
-    NOT,    /* bitwise not */
-    LDI,    /* load indirect */
-    STI,    /* store indirect */
-    JMP,    /* jump */
-    RES,    /* reserved (unused) */
-    LEA,    /* load effective address */
-    TRAP,   /* execute trap */
-}
-
-impl Op {
-    pub fn from_u16(op: u16) -> Op {
-        match op {
-            0 => Op::BR,
-            1 => Op::ADD,
-            2 => Op::LD,
-            3 => Op::ST,
-            4 => Op::JSR,
-            5 => Op::AND,
-            6 => Op::LDR,
-            7 => Op::STR,
-            8 => Op::RTI,
-            9 => Op::NOT,
-            10 => Op::LDI,
-            11 => Op::STI,
-            12 => Op::JMP,
-            13 => Op::RES,
-            14 => Op::LEA,
-            15 => Op::TRAP,
-            _ => unreachable!("unknown op code {}", op),
-        }
-    }
-}
-
-pub enum Trap {
-    GETC = 0x20,  /* get character from keyboard, not echoed */
-    OUT = 0x21,   /* output a character */
-    PUTS = 0x22,  /* output a word string */
-    IN = 0x23,    /* get character from keyboard, echoed onto the terminal */
-    PUTSP = 0x24, /* output a byte string */
-    HALT = 0x25,  /* halt the program */
-}
-
 pub const MEMORY_MAX: usize = 1 << 16;
+
+#[derive(Logos, Debug, PartialEq)]
+#[repr(u16)]
+pub enum Token {
+    // op codes
+    #[regex("BRn?z?p?",
+     callback = |lex| { 
+        let mut flags: u16 = 0;
+        for c in lex.source()[2..].chars() {
+            match c {
+                'n' | 'N' => flags |= 1 << 11,
+                'z' | 'Z' => flags |= 1 << 10,
+                'p' | 'P' => flags |= 1 << 9,
+                _ => unreachable!(),
+            }
+        }
+        // NB "The assembly language opcode BR is interpreted the same as BRnzp;
+        // that is, always branch to the target address."
+        if flags == 0 {
+            flags = 1 << 11 | 1 << 10 | 1 << 9;
+        }
+        flags
+    }, ignore(ascii_case))]
+    BR(u16) = 0, /* branch */
+    #[token("ADD", |_| 1 << 12, ignore(ascii_case))]
+    ADD(u16), /* add  */
+    #[token("LD", |_| 2 << 12, ignore(ascii_case))]
+    LD(u16), /* load */
+    #[token("ST", |_| 3 << 12, ignore(ascii_case))]
+    ST(u16), /* store */
+    #[token("JSR", |_| 4 << 12 | 1 << 11, ignore(ascii_case))]
+    JSR(u16), /* jump register */
+    #[token("AND", |_| 5 << 12, ignore(ascii_case))]
+    AND(u16), /* bitwise and */
+    #[token("LDR", |_| 6 << 12, ignore(ascii_case))]
+    LDR(u16), /* load register */
+    #[token("STR", |_| 7 << 12, ignore(ascii_case))]
+    STR(u16), /* store register */
+    #[token("RTI", |_| 8 << 12, ignore(ascii_case))]
+    RTI(u16), /* unused */
+    #[token("NOT", |_| 9 << 12, ignore(ascii_case))]
+    NOT(u16), /* bitwise not */
+    #[token("LDI", |_| 10 << 12, ignore(ascii_case))]
+    LDI(u16), /* load indirect */
+    #[token("STI", |_| 11 << 12, ignore(ascii_case))]
+    STI(u16), /* store indirect */
+    #[token("JMP", |_| 12 << 12, ignore(ascii_case))]
+    JMP(u16), /* jump */
+    #[token("RES", |_| 13 << 12, ignore(ascii_case))]
+    RES(u16), /* reserved (unused) */
+    #[token("LEA", |_| 14 << 12, ignore(ascii_case))]
+    LEA(u16), /* load effective address */
+    #[token("TRAP", |_| 15 << 12, ignore(ascii_case))]
+    TRAP(u16), /* execute trap */
+
+    // alternative ops
+    #[token("RET", |_| 12 << 12 | 7 << 6, ignore(ascii_case))]
+    RET(u16), /* equivalent to JMP R7 */
+    #[token("JSRR", |_| 4 << 12, ignore(ascii_case))]
+    JSRR(u16), /* JSR, but takes a register argument */
+
+    // traps
+    #[token("GETC", |_| 15 << 12 | 0x20, ignore(ascii_case))]
+    GETC(u16) = 0x20, /* get character from keyboard, not echoed */
+    #[token("OUT", |_| 15 << 12 | 0x21, ignore(ascii_case))]
+    OUT(u16) = 0x21,   /* output a character */
+    #[token("PUTS", |_| 15 << 12 | 0x22, ignore(ascii_case))]
+    PUTS(u16) = 0x22,  /* output a word string */
+    #[token("IN", |_| 15 << 12 | 0x23, ignore(ascii_case))]
+    IN(u16) = 0x23,    /* get character from keyboard, echoed onto the terminal */
+    #[token("PUTSP", |_| 15 << 12 | 0x24, ignore(ascii_case))]
+    PUTSP(u16) = 0x24, /* output a byte string */
+    #[token("HALT", |_| 15 << 12 | 0x25, ignore(ascii_case))]
+    HALT(u16) = 0x25,  /* halt the program */
+
+    // registers
+    #[regex("R[0-7]", callback = |lex| {
+        (lex.source().as_bytes()[1] - b'0') as u16
+    },
+    ignore(ascii_case))]
+    REG(u16),
+
+    // assembler directives
+    #[token(".ORIG", ignore(ascii_case))]
+    ORIG, /* origin */
+    #[token(".FILL", ignore(ascii_case))]
+    FILL, /* fill a single address */
+    #[token(".STRINGZ", ignore(ascii_case))]
+    STRINGZ, /* ascii string literal */
+    #[token(".END", ignore(ascii_case))]
+    END, /* end of program */
+}
 
 pub struct Program {
     pub orig: usize,
@@ -82,7 +123,8 @@ impl Program {
                         0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
                         _ => {
                             // self.mem[iaddr] |= (saddr - iaddr - 1) & mask
-                            self.mem[*iaddr] |= ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
+                            self.mem[*iaddr] |=
+                                ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
                     }
                 } else {
