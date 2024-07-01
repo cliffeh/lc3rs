@@ -2,6 +2,8 @@
 name = "lc3"
 version = "0.1.0"
 edition = "2021"
+authors = ["Cliff Snyder <cliff.snyder@gmail.com>"]
+description = "a collection of tools for LC3 programs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,9 +14,11 @@ path = "src/lc3.rs"
 [[bin]]
 name = "lc3as"
 path = "src/main.rs"
+description = "an LC3 assembler"
 
 [dependencies]
-lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
+clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
+lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }
 
 [build-dependencies]
 lalrpop = "0.20.0"

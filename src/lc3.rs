@@ -74,7 +74,7 @@ impl Program {
         }
     }
 
-    pub fn dump_symbols(&mut self, out: &mut dyn Write) -> Result<usize, Error> {
+    pub fn dump_symbols(&self, out: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         let mut symvec : Vec<(&String, &usize)> = self.syms.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
@@ -104,11 +104,11 @@ impl Program {
         }
     }
 
-    pub fn write(self, out: &mut dyn Write) -> Result<usize, Error> {
+    pub fn write(&self, out: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += out.write(&u16::to_be_bytes(self.orig as u16))?;
-        for inst in self.mem {
-            n += out.write(&u16::to_be_bytes(inst))?;
+        for inst in &self.mem {
+            n += out.write(&u16::to_be_bytes(*inst))?;
         }
         Ok(n)
     }
