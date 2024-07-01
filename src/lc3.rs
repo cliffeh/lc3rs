@@ -74,7 +74,17 @@ impl Program {
         }
     }
 
-    pub fn resolve_symbols(&mut self) -> () {
+    pub fn dump_symbols(&mut self, out: &mut dyn Write) -> Result<usize, Error> {
+        let mut n: usize = 0;
+        let mut symvec : Vec<(&String, &usize)> = self.syms.iter().collect();
+        symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
+        for (sym, addr) in symvec {
+            n += out.write(format!("x{:04x} {}\n", addr+self.orig, sym).as_bytes())?;
+        }
+        Ok(n)
+    }
+
+    pub fn resolve_symbols(&mut self) {
         for (iaddr, label) in self.refs.iter() {
             if let Some(saddr) = self.syms.get(label) {
                 if let Some(mask) = self.mask.get(iaddr) {
