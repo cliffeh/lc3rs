@@ -76,10 +76,10 @@ impl Program {
 
     pub fn dump_symbols(&self, out: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        let mut symvec : Vec<(&String, &usize)> = self.syms.iter().collect();
+        let mut symvec: Vec<(&String, &usize)> = self.syms.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, addr) in symvec {
-            n += out.write(format!("x{:04x} {}\n", addr+self.orig, sym).as_bytes())?;
+            n += out.write(format!("x{:04x} {}\n", addr + self.orig, sym).as_bytes())?;
         }
         Ok(n)
     }
@@ -92,7 +92,8 @@ impl Program {
                         0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
                         _ => {
                             // self.mem[iaddr] |= (saddr - iaddr - 1) & mask
-                            self.mem[*iaddr] |= ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
+                            self.mem[*iaddr] |=
+                                ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
                     }
                 } else {
