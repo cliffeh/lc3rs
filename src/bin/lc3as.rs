@@ -4,8 +4,6 @@ use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
 
-
-
 #[derive(Parser)]
 #[command(author, version, about = "an LC3 (dis-)assembler", long_about = None)]
 struct Args {
