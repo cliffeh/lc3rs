@@ -9,7 +9,7 @@ description = "a collection of tools for LC3 programs"
 
 [lib]
 name = "lc3"
-path = "src/lc3.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "lc3as"

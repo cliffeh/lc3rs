@@ -1,11 +1,10 @@
 use clap::Parser;
-use lalrpop_util::lalrpop_mod;
-use lc3::Program;
+use lc3::{self, Program};
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
 
-lalrpop_mod!(#[allow(overflowing_literals)] pub asm);
+
 
 #[derive(Parser)]
 #[command(author, version, about = "an LC3 (dis-)assembler", long_about = None)]
@@ -108,7 +107,7 @@ fn main() -> Result<(), Error> {
     }
 
     let mut prog = Program::new();
-    let parser = asm::ProgramParser::new();
+    let parser = lc3::parser::ProgramParser::new();
     let mut buf = String::new();
 
     let (mut input, mut output, mut symbols) = args.get_input_output_symbols();

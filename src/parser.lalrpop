@@ -1,4 +1,4 @@
-use lc3::{Op, Program, Trap};
+use crate::{Op, Program, Trap};
 use std::str::FromStr;
 
 grammar(prog: &mut Program);

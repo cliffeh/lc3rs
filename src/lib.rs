@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::io::{Error, Write};
+use lalrpop_util::lalrpop_mod;
+
+lalrpop_mod!(#[allow(overflowing_literals)] pub parser);
 
 pub enum Op {
     BR = 0, /* branch */
