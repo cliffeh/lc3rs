@@ -1,6 +1,13 @@
 # rust-lc3
 an LC-3 assembler and virtual machine written in Rust
 
+## Testing
+At present unit and integration test coverage is...well...zero. *But*, you can check that the assembler works by doing:
+
+`cargo run --example assemble`
+
+It's a sort of poor man's integration test...
+
 ## References
 * [Write your Own Virtual Machine](https://www.jmeiners.com/lc3-vm/) - The original inspiration for this project
 * [LC-3 ISA specification](https://www.jmeiners.com/lc3-vm/supplies/lc3-isa.pdf)

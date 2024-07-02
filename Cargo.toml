@@ -21,3 +21,7 @@ lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }
 
 [build-dependencies]
 lalrpop = "0.20.0"
+
+[[example]]
+name = "assemble"
+path = "examples/assemble.rs"

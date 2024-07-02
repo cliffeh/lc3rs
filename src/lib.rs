@@ -1,8 +1,7 @@
-use lalrpop_util::lalrpop_mod;
 use std::collections::HashMap;
 use std::io::{Error, Read, Write};
-
-lalrpop_mod!(#[allow(overflowing_literals)] pub parser);
+mod asm;
+pub use asm::assemble;
 
 pub const MEMORY_MAX: usize = 1 << 16;
 

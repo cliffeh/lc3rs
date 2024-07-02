@@ -1,5 +1,5 @@
 use clap::Parser;
-use lc3::{self, Program};
+use lc3::assemble;
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
@@ -95,20 +95,14 @@ impl Args {
     }
 }
 
-fn execute(
+fn assemble_program(
     input: &mut impl Read,
     output: &mut impl Write,
     symbols: &mut impl Write,
 ) -> Result<(), Error> {
-    let mut prog = Program::new();
-    let parser = lc3::parser::ProgramParser::new();
-    let mut buf = String::new();
+    let prog = assemble(input)?;
 
-    input.read_to_string(&mut buf)?;
-    parser.parse(&mut prog, buf.as_str()).unwrap();
-
-    prog.resolve_symbols();
-
+    // TODO do something with results?
     let _ = prog.write(output);
     let _ = prog.dump_symbols(symbols);
 
@@ -126,5 +120,5 @@ fn main() -> Result<(), Error> {
 
     let (mut input, mut output, mut symbols) = args.get_input_output_symbols();
 
-    execute(&mut input, &mut output, &mut symbols)
+    assemble_program(&mut input, &mut output, &mut symbols)
 }
