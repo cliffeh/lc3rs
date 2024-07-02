@@ -35,11 +35,11 @@ pub enum Trap {
 }
 
 pub struct Program {
-    pub orig: usize,
+    pub orig: u16,
     pub mem: Vec<u16>,
-    pub syms: HashMap<String, usize>,
-    pub refs: HashMap<usize, String>,
-    pub mask: HashMap<usize, u16>,
+    pub syms: HashMap<String, u16>,
+    pub refs: HashMap<u16, String>,
+    pub mask: HashMap<u16, u16>,
 }
 
 impl Program {
@@ -55,7 +55,7 @@ impl Program {
 
     pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        let mut symvec: Vec<(&String, &usize)> = self.syms.iter().collect();
+        let mut symvec: Vec<(&String, &u16)> = self.syms.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, addr) in symvec {
             n += w.write(format!("x{:04x} {}\n", addr + self.orig, sym).as_bytes())?;
@@ -68,9 +68,9 @@ impl Program {
             if let Some(saddr) = self.syms.get(label) {
                 if let Some(mask) = self.mask.get(iaddr) {
                     match mask {
-                        0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
+                        0 => self.mem[*iaddr as usize] = (self.orig + saddr) as u16, // .FILL
                         _ => {
-                            self.mem[*iaddr] |=
+                            self.mem[*iaddr as usize] |=
                                 ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
                     }
@@ -88,7 +88,7 @@ impl Program {
         let mut buf: [u8; 2] = [0, 0];
 
         r.read_exact(&mut buf)?;
-        self.orig = u16::from_be_bytes(buf) as usize;
+        self.orig = u16::from_be_bytes(buf);
 
         loop {
             if r.read(&mut buf)? == 0 {

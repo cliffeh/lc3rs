@@ -17,7 +17,7 @@ match {
     _
 }
 
-pub Program: () = <orig:Origin> Statement* End => prog.orig = orig as usize;
+pub Program: () = <orig:Origin> Statement* End => prog.orig = orig;
 
 Origin: u16 = r"(?i)\.ORIG" <orig:HexLit> => orig;
 End: () = r"(?i)\.END" => ();
@@ -25,8 +25,7 @@ End: () = r"(?i)\.END" => ();
 Statement: () = {
     <label:Label> => {
         assert!(!prog.syms.contains_key(&label), "duplicate label: {}", label);
-        // eprintln!("setting key {} to addr {}", label, prog.mem.len());
-        prog.syms.insert(label, prog.mem.len());
+        prog.syms.insert(label, prog.mem.len() as u16);
     },
     <op:Op> => prog.mem.push(op),
 }
@@ -46,15 +45,15 @@ Op: u16 = {
   <op:NOT> <dr:Reg> "," <sr:Reg> => op | dr << 9 | sr << 6,
 
   // 1 register and a label or a PCoffset9
-  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op | r << 9 },
   <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op | r << 9 },
   <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op | r << 9 },
   <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op | r << 9 },
   <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
-  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op | r << 9 },
+  <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op | r << 9 },
   <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
 
   // just 1 register
@@ -62,13 +61,13 @@ Op: u16 = {
   <op:JSRR> <r:Reg> => op | r << 6,
 
   // no registers, just a label or a number
-  <op:BR>  <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x1ff); op },
+  <op:BR>  <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x1ff); op },
   <op:BR>  <pcoffset9:NumLit>  => op | (pcoffset9 & 0x1ff),
-  <op:JSR> <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x7ff); op },
+  <op:JSR> <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x7ff); op },
   <op:JSR> <pcoffset11:NumLit> => op | (pcoffset11 & 0x7ff),
 
   // assembler directives
-  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(prog.mem.len(), label.to_string()); prog.mask.insert(prog.mem.len(), 0x0); 0 },
+  r"(?i)\.FILL" <label:Label> => { prog.refs.insert(prog.mem.len() as u16, label.to_string()); prog.mask.insert(prog.mem.len() as u16, 0x0); 0 },
   r"(?i)\.FILL" <n:NumLit>    => n,
   r"(?i)\.STRINGZ" <s:r#""([^"])*""#> => {
     let mut chars = s[1..s.len()-1].chars();
