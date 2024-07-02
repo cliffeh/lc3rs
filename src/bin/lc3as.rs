@@ -95,6 +95,26 @@ impl Args {
     }
 }
 
+fn execute(
+    input: &mut impl Read,
+    output: &mut impl Write,
+    symbols: &mut impl Write,
+) -> Result<(), Error> {
+    let mut prog = Program::new();
+    let parser = lc3::parser::ProgramParser::new();
+    let mut buf = String::new();
+
+    input.read_to_string(&mut buf)?;
+    parser.parse(&mut prog, buf.as_str()).unwrap();
+
+    prog.resolve_symbols();
+
+    let _ = prog.write(output);
+    let _ = prog.dump_symbols(symbols);
+
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = Args::parse();
     if args.debug {
@@ -104,19 +124,7 @@ fn main() -> Result<(), Error> {
         eprintln!("using symbol file: {}", symfile.display());
     }
 
-    let mut prog = Program::new();
-    let parser = lc3::parser::ProgramParser::new();
-    let mut buf = String::new();
-
     let (mut input, mut output, mut symbols) = args.get_input_output_symbols();
 
-    input.read_to_string(&mut buf)?;
-    parser.parse(&mut prog, buf.as_str()).unwrap();
-
-    prog.resolve_symbols();
-
-    let _ = prog.write(&mut output);
-    let _ = prog.dump_symbols(&mut symbols);
-
-    Ok(())
+    execute(&mut input, &mut output, &mut symbols)
 }
