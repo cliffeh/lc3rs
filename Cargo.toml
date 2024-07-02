@@ -18,10 +18,7 @@ description = "LC3 assembler"
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
 lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }
+rstest = "0.21.0"
 
 [build-dependencies]
 lalrpop = "0.20.0"
-
-[[example]]
-name = "assemble"
-path = "examples/assemble.rs"
