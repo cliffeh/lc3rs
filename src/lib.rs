@@ -41,11 +41,10 @@ pub struct Program {
 }
 
 impl Program {
-    /// Creates a new "empty" program with no instructions or symbols.
-    pub fn new() -> Program {
+    /// Creates a new program.
+    pub fn new(orig: u16, mem: Vec<u16>) -> Program {
         Program {
-            orig: 0x0, // NB using 0x3000 as a default masks errors...
-            mem: vec![],
+            orig, mem, 
             syms: HashMap::new(),
             refs: HashMap::new(),
         }
@@ -59,7 +58,7 @@ impl Program {
     /// ```rust
     /// use lc3::Program;
     ///
-    /// let mut prog = Program::new();
+    /// let mut prog = Program::default();
     /// prog.orig = 0x3000;
     /// prog.syms.insert(String::from("foo"), 0x20);
     /// prog.syms.insert(String::from("bar"), 0x1200);
@@ -105,22 +104,23 @@ impl Program {
         }
     }
 
-    pub fn read(&mut self, r: &mut dyn Read) -> Result<usize, Error> {
-        let mut n = 0;
+    /// Reads an LC3 program from `r`.
+    pub fn read(r: &mut dyn Read) -> Result<Program, Error> {
         let mut buf: [u8; 2] = [0, 0];
-
         r.read_exact(&mut buf)?;
-        self.orig = u16::from_be_bytes(buf);
+        let orig = u16::from_be_bytes(buf);
+
+        let mut mem: Vec<u16> = vec![];
 
         loop {
             if r.read(&mut buf)? == 0 {
                 // TODO error on size other than 0 or 2
                 break;
             }
-            self.mem.push(u16::from_be_bytes(buf));
-            n += 2;
+            mem.push(u16::from_be_bytes(buf));
         }
-        Ok(n)
+
+        Ok(Program::new(orig, mem))
     }
 
     /// writes the program
@@ -136,6 +136,11 @@ impl Program {
 
 impl Default for Program {
     fn default() -> Self {
-        Self::new()
+        Program {
+            orig: 0x0, // NB using 0x3000 as a default masks errors...
+            mem: vec![],
+            syms: HashMap::new(),
+            refs: HashMap::new(),
+        }
     }
 }

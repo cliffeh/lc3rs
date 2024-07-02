@@ -11,8 +11,7 @@ fn test_assemble(#[files("examples/*.asm")] infile: PathBuf) {
     let prog = assemble(&mut input).unwrap();
 
     let mut output = fs::File::open(outfile).unwrap();
-    let mut expected = Program::new();
-    expected.read(&mut output).unwrap();
+    let expected = Program::read(&mut output).unwrap();
 
     assert_eq!(prog.mem, expected.mem);
 
