@@ -37,21 +37,42 @@ pub struct Program {
     pub orig: u16,
     pub mem: Vec<u16>,
     pub syms: HashMap<String, u16>,
-    pub refs: HashMap<u16, String>,
-    pub mask: HashMap<u16, u16>,
+    pub refs: HashMap<u16, (String, u16)>,
 }
 
 impl Program {
+    /// Creates a new "empty" program with no instructions or symbols.
     pub fn new() -> Program {
         Program {
             orig: 0x0, // NB using 0x3000 as a default masks errors...
             mem: vec![],
             syms: HashMap::new(),
             refs: HashMap::new(),
-            mask: HashMap::new(),
         }
     }
 
+    /// Dumps the symbol table for this program. The format is one symbol per line,
+    /// relative to `self.orig` and sorted in address order.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use lc3::Program;
+    ///
+    /// let mut prog = Program::new();
+    /// prog.orig = 0x3000;
+    /// prog.syms.insert(String::from("foo"), 0x20);
+    /// prog.syms.insert(String::from("bar"), 0x1200);
+    ///
+    /// let mut buf: Vec<u8> = vec![];
+    /// prog.dump_symbols(&mut buf);
+    ///
+    /// let mut s = String::from_utf8(buf).unwrap();
+    /// let mut actual = s.split("\n");
+    ///
+    /// assert_eq!(actual.next().unwrap(), "x3020 foo");
+    /// assert_eq!(actual.next().unwrap(), "x4200 bar");
+    /// ```
     pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         let mut symvec: Vec<(&String, &u16)> = self.syms.iter().collect();
@@ -62,25 +83,24 @@ impl Program {
         Ok(n)
     }
 
+    /// Walks through all symbol references in `self.refs` and updates their respective
+    /// instructions using the actual address of the symbol, masked appropriately for
+    /// the instruction. Panics if there is an undefined symbol.
     pub fn resolve_symbols(&mut self) {
         // instruction address
-        for (iaddr, label) in self.refs.iter() {
+        for (iaddr, (symbol, mask)) in self.refs.iter() {
             // symbol address
-            if let Some(saddr) = self.syms.get(label) {
-                if let Some(mask) = self.mask.get(iaddr) {
-                    match mask {
-                        0 => self.mem[*iaddr as usize] = (self.orig + saddr) as u16, // .FILL
-                        _ => {
-                            // relative to the incremented PC
-                            self.mem[*iaddr as usize] |=
-                                ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
-                        }
+            if let Some(saddr) = self.syms.get(symbol) {
+                match mask {
+                    0 => self.mem[*iaddr as usize] = (self.orig + saddr) as u16, // .FILL
+                    _ => {
+                        // relative to the incremented PC
+                        self.mem[*iaddr as usize] |=
+                            ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                     }
-                } else {
-                    panic!("undefined mask at addr {}", iaddr);
                 }
             } else {
-                panic!("undefined label: {}", label);
+                panic!("undefined symbol: {}", symbol);
             }
         }
     }
@@ -103,6 +123,7 @@ impl Program {
         Ok(n)
     }
 
+    /// writes the program
     pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.orig as u16))?;
@@ -110,5 +131,11 @@ impl Program {
             n += w.write(&u16::to_be_bytes(*inst))?;
         }
         Ok(n)
+    }
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self::new()
     }
 }

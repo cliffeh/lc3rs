@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::{fs, path};
 
 #[derive(Parser)]
-#[command(author, version, about = "an LC3 (dis-)assembler", long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     /// turn on debug logging
     #[arg(short, long)]

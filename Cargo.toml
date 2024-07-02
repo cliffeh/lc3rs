@@ -9,11 +9,9 @@ description = "a collection of tools for LC3 programs"
 
 [lib]
 name = "lc3"
-# path = "src/lib.rs"
 
 [[bin]]
 name = "lc3as"
-description = "LC3 assembler"
 
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
