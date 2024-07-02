@@ -123,7 +123,7 @@ impl Program {
         Ok(Program::new(orig, mem))
     }
 
-    /// writes the program
+    /// Writes the program out to `w`.
     pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.orig as u16))?;
