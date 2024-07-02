@@ -1,8 +1,10 @@
 use lalrpop_util::lalrpop_mod;
 use std::collections::HashMap;
-use std::io::{Error, Write};
+use std::io::{Error, Read, Write};
 
 lalrpop_mod!(#[allow(overflowing_literals)] pub parser);
+
+pub const MEMORY_MAX: usize = 1 << 16;
 
 pub enum Op {
     BR = 0, /* branch */
@@ -23,30 +25,6 @@ pub enum Op {
     TRAP,   /* execute trap */
 }
 
-impl Op {
-    pub fn from_u16(op: u16) -> Op {
-        match op {
-            0 => Op::BR,
-            1 => Op::ADD,
-            2 => Op::LD,
-            3 => Op::ST,
-            4 => Op::JSR,
-            5 => Op::AND,
-            6 => Op::LDR,
-            7 => Op::STR,
-            8 => Op::RTI,
-            9 => Op::NOT,
-            10 => Op::LDI,
-            11 => Op::STI,
-            12 => Op::JMP,
-            13 => Op::RES,
-            14 => Op::LEA,
-            15 => Op::TRAP,
-            _ => unreachable!("unknown op code {}", op),
-        }
-    }
-}
-
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -55,8 +33,6 @@ pub enum Trap {
     PUTSP = 0x24, /* output a byte string */
     HALT = 0x25,  /* halt the program */
 }
-
-pub const MEMORY_MAX: usize = 1 << 16;
 
 pub struct Program {
     pub orig: usize,
@@ -77,12 +53,12 @@ impl Program {
         }
     }
 
-    pub fn dump_symbols(&self, out: &mut dyn Write) -> Result<usize, Error> {
+    pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         let mut symvec: Vec<(&String, &usize)> = self.syms.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, addr) in symvec {
-            n += out.write(format!("x{:04x} {}\n", addr + self.orig, sym).as_bytes())?;
+            n += w.write(format!("x{:04x} {}\n", addr + self.orig, sym).as_bytes())?;
         }
         Ok(n)
     }
@@ -94,7 +70,6 @@ impl Program {
                     match mask {
                         0 => self.mem[*iaddr] = (self.orig + saddr) as u16, // .FILL
                         _ => {
-                            // self.mem[iaddr] |= (saddr - iaddr - 1) & mask
                             self.mem[*iaddr] |=
                                 ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
@@ -108,11 +83,28 @@ impl Program {
         }
     }
 
-    pub fn write(&self, out: &mut dyn Write) -> Result<usize, Error> {
+    pub fn read(&mut self, r: &mut dyn Read) -> Result<usize, Error> {
+        let mut n = 0;
+        let mut buf: [u8; 2] = [0, 0];
+
+        r.read_exact(&mut buf)?;
+        self.orig = u16::from_be_bytes(buf) as usize;
+
+        loop {
+            if r.read(&mut buf)? == 0 { // TODO error on size other than 0 or 2
+                break;
+            }
+            self.mem.push(u16::from_be_bytes(buf));
+            n += 2;
+        }
+        Ok(n)
+    }
+
+    pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        n += out.write(&u16::to_be_bytes(self.orig as u16))?;
+        n += w.write(&u16::to_be_bytes(self.orig as u16))?;
         for inst in &self.mem {
-            n += out.write(&u16::to_be_bytes(*inst))?;
+            n += w.write(&u16::to_be_bytes(*inst))?;
         }
         Ok(n)
     }
