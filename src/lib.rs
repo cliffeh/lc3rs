@@ -91,7 +91,8 @@ impl Program {
         self.orig = u16::from_be_bytes(buf) as usize;
 
         loop {
-            if r.read(&mut buf)? == 0 { // TODO error on size other than 0 or 2
+            if r.read(&mut buf)? == 0 {
+                // TODO error on size other than 0 or 2
                 break;
             }
             self.mem.push(u16::from_be_bytes(buf));
