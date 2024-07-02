@@ -64,12 +64,15 @@ impl Program {
     }
 
     pub fn resolve_symbols(&mut self) {
+        // instruction address
         for (iaddr, label) in self.refs.iter() {
+            // symbol address
             if let Some(saddr) = self.syms.get(label) {
                 if let Some(mask) = self.mask.get(iaddr) {
                     match mask {
                         0 => self.mem[*iaddr as usize] = (self.orig + saddr) as u16, // .FILL
                         _ => {
+                            // relative to the incremented PC
                             self.mem[*iaddr as usize] |=
                                 ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
                         }
