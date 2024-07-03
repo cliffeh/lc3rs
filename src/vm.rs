@@ -1,6 +1,6 @@
 use crate::{sign_extend, Op, Program, Trap, MEMORY_MAX};
 use crossterm::event::{read, Event, KeyCode};
-use std::io::{stdout, Error, Read, Write};
+use std::io::{stdin, stdout, Error, Read, Write};
 
 pub struct VirtualMachine {
     pc: u16,
@@ -156,6 +156,20 @@ impl VirtualMachine {
 
                     let trapvect8 = inst & 0x00ff;
                     match Trap::from(trapvect8) {
+                        Trap::GETC => {
+                            let mut buf: [u8; 1] = [0];
+                            // TODO handle result
+                            let _ = stdin().read_exact(&mut buf);
+                            self.reg[0] = buf[0] as u16;
+                            self.setcc(self.reg[0]);
+                        }
+                        Trap::OUT => {
+                            let b = self.reg[0] as u8;
+                            let mut out = stdout();
+                            // TODO handle results
+                            let _ = out.write(&[b]);
+                            let _ = out.flush();
+                        }
                         Trap::PUTS => {
                             let mut addr = self.reg[0] as usize;
                             let mut out = stdout();
@@ -168,6 +182,18 @@ impl VirtualMachine {
                             }
                             // TODO handle result
                             let _ = out.flush();
+                        }
+                        Trap::IN => {
+                            println!("Enter a character: ");
+                            let mut buf: [u8; 1] = [0];
+                            // TODO handle result
+                            let _ = stdin().read_exact(&mut buf);
+                            let mut out = stdout();
+                            let _ = out.write(&buf);
+                            // TODO handle result
+                            let _ = out.flush();
+                            self.reg[0] = buf[0] as u16;
+                            self.setcc(self.reg[0]);
                         }
                         Trap::HALT => {
                             break;
