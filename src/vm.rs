@@ -75,11 +75,80 @@ impl VirtualMachine {
 
                     self.setcc(self.reg[dr]);
                 }
+                Op::BR => {
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    let flags = (inst >> 9) & 0x7;
+
+                    if flags & self.cond != 0 {
+                        self.pc += pcoffset9;
+                    }
+                }
+                Op::JMP => {
+                    let base_r = ((inst >> 6) & 0x7) as usize;
+                    self.pc = self.reg[base_r];
+                }
+                Op::JSR => {
+                    let flag = (inst >> 11) & 0x1;
+                    if flag == 0 { // JSRR
+                        let base_r = ((inst >> 6) & 0x7) as usize;
+                        self.pc = self.reg[base_r];
+                    } else {
+                        let pcoffset11 = sign_extend(inst & 0x7ff, 11);
+                        self.pc += pcoffset11;
+                    }
+                }
+                Op::LD => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    let addr = (self.pc + pcoffset9) as usize;
+                    self.reg[dr] = self.read_mem(addr);
+
+                    self.setcc(self.reg[dr]);
+                }
+                Op::LDI => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    let mut addr = (self.pc + pcoffset9) as usize;
+                    addr = self.read_mem(addr) as usize;
+                    self.reg[dr] = self.read_mem(addr);
+
+                    self.setcc(self.reg[dr]);
+                }
                 Op::LEA => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     self.reg[dr] = self.pc + pcoffset9;
                     self.setcc(pcoffset9);
+                }
+                Op::NOT => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let sr = ((inst >> 6) & 0x7) as usize;
+                    self.reg[dr] = !self.reg[sr];
+
+                    self.setcc(self.reg[dr]);
+                }
+                Op::ST => {
+                    let sr = ((inst >> 9) & 0x7) as usize;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    let addr = (self.pc + pcoffset9) as usize;
+
+                    self.mem[addr] = self.reg[sr];
+                }
+                Op::STI => {
+                    let sr = ((inst >> 9) & 0x7) as usize;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    let mut addr = (self.pc + pcoffset9) as usize;
+                    addr = self.read_mem(addr) as usize;
+
+                    self.mem[addr] = self.reg[sr];
+                }
+                Op::STR => {
+                    let sr = ((inst >> 9) & 0x7) as usize;
+                    let base_r = ((inst >> 6) & 0x7) as usize;
+                    let offset6 = sign_extend(inst & 0x3f, 6);
+                    let addr = (self.reg[base_r] + offset6) as usize;
+
+                    self.mem[addr] = self.reg[sr];
                 }
                 Op::TRAP => {
                     // store the PC
