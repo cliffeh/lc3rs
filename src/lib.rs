@@ -22,8 +22,13 @@ pub enum Op {
     RES,    /* reserved (unused) */
     LEA,    /* load effective address */
     TRAP,   /* execute trap */
+
+    // assembler directives (not technically operations)
+    FILL,
+    STRINGZ,
 }
 
+#[repr(u16)]
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -33,20 +38,83 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
+pub struct Instruction(
+    /// The operation. (Almost) always fills bits 15-12.
+    Op,
+    /// Always fills bits 11-9.
+    u16,
+    /// Always fills bits 8-6.
+    u16,
+    /// Either fills bits 5-0, or is used as the mask if there is a symbol reference
+    u16,
+    /// Optional
+    Option<String>,
+);
+
+impl From<Instruction> for u16 {
+    fn from(inst: Instruction) -> Self {
+        (inst.0 as u16) << 12 | (inst.1 << 9) | (inst.2 << 6)
+    }
+}
+
+// pub enum Instruction {
+//     /// .1 fills bits 11-9, .2 fills bits 8-6, .3 fills bits 5-0
+//     /// covers: ADD, AND, JMP, JSRR, LDR, NOT, RET, STR
+//     ThreeArgs(Op, u16, u16, u16),
+//     /// .1 fills bits 11-9
+//     /// if there is a symbol, .2 provides the mask for resolution (e.g., 0x1ff, 0x7ff)
+//     /// if there is not a symbol, .2 fills bits 8-0
+//     /// covers: BR, JSR, LD, LDI, LEA, ST, STI, TRAP
+//     TwoArgs(Op, u16, u16, Option<String>)
+// }
+
+// pub enum Instruction {
+//     // DR, SR1, flag, SR2|imm5
+//     Add(u16, u16, bool, u16),
+//     And(u16, u16, bool, u16),
+//     // flags, PCoffset9|symbol
+//     Br(u16, u16, Option<String>),
+//     // BaseR
+//     Jmp(u16),
+//     // PCoffset11|symbol
+//     Jsr(u16, Option<String>),
+//     // BaseR
+//     Jsrr(u16),
+//     // DR, PCoffset9|symbol
+//     Ld(u16, u16, Option<String>),
+//     Ldi(u16, u16, Option<String>),
+//     // DR, BaseR, offset6
+//     Ldr(u16, u16, u16),
+//     // DR, PCoffset9|symbol
+//     Lea(u16, u16, Option<String>),
+//     // DR, SR
+//     Not(u16, u16),
+//     // same as Jmp, with BaseR = R7
+//     Ret,
+//     // unused
+//     Rti,
+//     // SR, PCoffset9|symbol
+//     St(u16, u16, Option<String>),
+//     Sti(u16, u16, Option<String>),
+//     // SR, BaseR, offset6
+//     Str(u16, u16, u16),
+//     // trapvec8
+//     Trap(u16),
+// }
+
 pub struct Program {
-    pub orig: u16,
-    pub mem: Vec<u16>,
-    pub syms: HashMap<String, u16>,
-    pub refs: HashMap<u16, (String, u16)>,
+    pub origin: u16,
+    pub instructions: Vec<Instruction>,
+    pub symbols: HashMap<String, u16>,
 }
 
 impl Program {
     /// Creates a new program.
     pub fn new(orig: u16, mem: Vec<u16>) -> Program {
         Program {
-            orig, mem, 
+            orig,
+            mem,
             syms: HashMap::new(),
-            refs: HashMap::new(),
         }
     }
 
