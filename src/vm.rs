@@ -54,7 +54,7 @@ impl VirtualMachine {
                         self.reg[dr] = self.reg[sr1] + self.reg[sr2];
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5);
-                        self.reg[dr] = self.reg[sr1] + imm5;
+                        self.reg[dr] = self.reg[sr1].wrapping_add(imm5);
                     }
 
                     self.setcc(self.reg[dr]);
@@ -89,7 +89,8 @@ impl VirtualMachine {
                 }
                 Op::JSR => {
                     let flag = (inst >> 11) & 0x1;
-                    if flag == 0 { // JSRR
+                    if flag == 0 {
+                        // JSRR
                         let base_r = ((inst >> 6) & 0x7) as usize;
                         self.pc = self.reg[base_r];
                     } else {
@@ -100,7 +101,7 @@ impl VirtualMachine {
                 Op::LD => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let addr = (self.pc + pcoffset9) as usize;
+                    let addr = (self.pc.wrapping_add(pcoffset9)) as usize;
                     self.reg[dr] = self.read_mem(addr);
 
                     self.setcc(self.reg[dr]);
@@ -113,6 +114,14 @@ impl VirtualMachine {
                     self.reg[dr] = self.read_mem(addr);
 
                     self.setcc(self.reg[dr]);
+                }
+                Op::LDR => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let base_r = ((inst >> 6) & 0x7) as usize;
+                    let offset6 = sign_extend(inst & 0x3f, 6);
+                    let addr = (self.reg[base_r].wrapping_add(offset6)) as usize;
+
+                    self.reg[dr] = self.read_mem(addr);
                 }
                 Op::LEA => {
                     let dr = ((inst >> 9) & 0x7) as usize;
@@ -130,7 +139,7 @@ impl VirtualMachine {
                 Op::ST => {
                     let sr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let addr = (self.pc + pcoffset9) as usize;
+                    let addr = (self.pc.wrapping_add(pcoffset9)) as usize;
 
                     self.mem[addr] = self.reg[sr];
                 }
@@ -146,7 +155,7 @@ impl VirtualMachine {
                     let sr = ((inst >> 9) & 0x7) as usize;
                     let base_r = ((inst >> 6) & 0x7) as usize;
                     let offset6 = sign_extend(inst & 0x3f, 6);
-                    let addr = (self.reg[base_r] + offset6) as usize;
+                    let addr = (self.reg[base_r].wrapping_add(offset6)) as usize;
 
                     self.mem[addr] = self.reg[sr];
                 }
@@ -213,20 +222,23 @@ impl VirtualMachine {
     fn read_mem(&mut self, addr: usize) -> u16 {
         if addr == MEM_KBSR {
             let event = read().unwrap();
-            match event {
-                Event::Key(key) => {
-                    self.mem[MEM_KBSR] = 1 << 15;
-                    match key.code {
-                        KeyCode::Char(c) => {
-                            self.mem[MEM_KBDR] = c as u16;
-                        }
-                        _ => {
-                            // TODO match other key codes?
+            loop {
+                match event {
+                    Event::Key(key) => {
+                        self.mem[MEM_KBSR] = 1 << 15;
+                        match key.code {
+                            KeyCode::Char(c) => {
+                                self.mem[MEM_KBDR] = c as u16;
+                                break;
+                            }
+                            _ => {
+                                // TODO match other key codes?
+                            }
                         }
                     }
-                }
-                _ => {
-                    // TODO match other event types?
+                    _ => {
+                        // TODO match other event types?
+                    }
                 }
             }
         }
