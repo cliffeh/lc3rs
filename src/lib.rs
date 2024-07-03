@@ -44,7 +44,8 @@ impl Program {
     /// Creates a new program.
     pub fn new(orig: u16, mem: Vec<u16>) -> Program {
         Program {
-            orig, mem, 
+            orig,
+            mem,
             syms: HashMap::new(),
             refs: HashMap::new(),
         }
@@ -141,6 +142,30 @@ impl Default for Program {
             mem: vec![],
             syms: HashMap::new(),
             refs: HashMap::new(),
+        }
+    }
+}
+
+impl From<u16> for Op {
+    fn from(value: u16) -> Op {
+        match value {
+            0x0 => Op::BR,
+            0x1 => Op::ADD,
+            0x2 => Op::LD,
+            0x3 => Op::ST,
+            0x4 => Op::JSR,
+            0x5 => Op::AND,
+            0x6 => Op::LDR,
+            0x7 => Op::STR,
+            0x8 => Op::RTI,
+            0x9 => Op::NOT,
+            0xA => Op::LDI,
+            0xB => Op::STI,
+            0xC => Op::JMP,
+            0xD => Op::RES,
+            0xE => Op::LEA,
+            0xF => Op::TRAP,
+            _ => unreachable!(),
         }
     }
 }

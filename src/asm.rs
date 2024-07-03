@@ -16,3 +16,16 @@ pub fn assemble(r: &mut dyn Read) -> Result<Program, Error> {
 
     Ok(prog)
 }
+
+// pub fn disassemble(insts: Vec<u16>) {
+//     for inst in insts {
+//         let op: Op = Op::from(inst >> 12);
+//         match op {
+//             Op::BR => {
+//                 let flags = (inst >> 9) & 0x7;
+//                 let pcoffset9 = inst & 0x1ff;
+//             },
+//             _ => { unimplemented!(); }
+//         }
+//     }
+// }
