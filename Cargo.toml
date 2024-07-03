@@ -13,6 +13,9 @@ name = "lc3"
 [[bin]]
 name = "lc3as"
 
+[[bin]]
+name = "lc3vm"
+
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
 lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }

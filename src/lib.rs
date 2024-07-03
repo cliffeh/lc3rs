@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Error, Read, Write};
 mod asm;
+pub mod vm;
 pub use asm::assemble;
 
 pub const MEMORY_MAX: usize = 1 << 16;
@@ -167,5 +168,28 @@ impl From<u16> for Op {
             0xF => Op::TRAP,
             _ => unreachable!(),
         }
+    }
+}
+
+impl From<u16> for Trap {
+    fn from(value: u16) -> Trap {
+        match value {
+            0x20 => Trap::GETC,
+            0x21 => Trap::OUT,
+            0x22 => Trap::PUTS,
+            0x23 => Trap::IN,
+            0x24 => Trap::PUTSP,
+            0x25 => Trap::HALT,
+            _ => unreachable!(),
+        }
+    }
+}
+
+// utility
+pub fn sign_extend(x: u16, bit_count: usize) -> u16 {
+    if ((x >> (bit_count - 1)) & 1) != 0 {
+        x | (0xFFFF << bit_count)
+    } else {
+        x
     }
 }
