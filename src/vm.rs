@@ -1,4 +1,5 @@
 use crate::{sign_extend, Op, Program, Trap, MEMORY_MAX};
+use crossterm::event::{read, Event, KeyCode};
 use std::io::{stdout, Error, Read, Write};
 
 pub struct VirtualMachine {
@@ -12,6 +13,8 @@ pub struct VirtualMachine {
 const COND_N: u16 = 2;
 const COND_Z: u16 = 1;
 const COND_P: u16 = 0;
+const MEM_KBSR: usize = 0xfe00; /* keyboard status */
+const MEM_KBDR: usize = 0xfe02; /* keyboard data */
 
 impl VirtualMachine {
     pub fn new() -> VirtualMachine {
@@ -78,6 +81,30 @@ impl VirtualMachine {
                 }
             }
         }
+    }
+
+    fn read_mem(&mut self, addr: usize) -> u16 {
+        if addr == MEM_KBSR {
+            let event = read().unwrap();
+            match event {
+                Event::Key(key) => {
+                    self.mem[MEM_KBSR] = 1 << 15;
+                    match key.code {
+                        KeyCode::Char(c) => {
+                            self.mem[MEM_KBDR] = c as u16;
+                        }
+                        _ => {
+                            // TODO match other key codes?
+                        }
+                    }
+                }
+                _ => {
+                    // TODO match other event types?
+                }
+            }
+        }
+
+        return self.mem[addr];
     }
 
     fn setcc(&mut self, value: u16) {

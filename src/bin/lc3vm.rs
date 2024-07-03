@@ -1,7 +1,7 @@
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use lc3::vm::VirtualMachine;
 use std::env;
 use std::fs;
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
 
 pub fn main() {
     // TODO handle result
