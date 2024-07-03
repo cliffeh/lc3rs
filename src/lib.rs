@@ -186,9 +186,9 @@ impl From<u16> for Trap {
 }
 
 // utility
-pub fn sign_extend(x: u16, bit_count: usize) -> u16 {
-    if ((x >> (bit_count - 1)) & 1) != 0 {
-        x | (0xFFFF << bit_count)
+pub fn sign_extend(x: u16, count: usize) -> u16 {
+    if ((x >> (count - 1)) & 1) != 0 {
+        x | (0xFFFF << count)
     } else {
         x
     }
