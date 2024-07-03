@@ -43,6 +43,38 @@ impl VirtualMachine {
             self.pc += 1;
             let op = inst >> 12;
             match Op::from(op) {
+                Op::ADD => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let sr1 = ((inst >> 6) & 0x7) as usize;
+                    let imm = (inst >> 5) & 0x1;
+
+                    if imm == 0 {
+                        // 3 registers
+                        let sr2 = (inst & 0x7) as usize;
+                        self.reg[dr] = self.reg[sr1] + self.reg[sr2];
+                    } else {
+                        let imm5 = sign_extend(inst & 0x1f, 5);
+                        self.reg[dr] = self.reg[sr1] + imm5;
+                    }
+
+                    self.setcc(self.reg[dr]);
+                }
+                Op::AND => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let sr1 = ((inst >> 6) & 0x7) as usize;
+                    let imm = (inst >> 5) & 0x1;
+
+                    if imm == 0 {
+                        // 3 registers
+                        let sr2 = (inst & 0x7) as usize;
+                        self.reg[dr] = self.reg[sr1] & self.reg[sr2];
+                    } else {
+                        let imm5 = sign_extend(inst & 0x1f, 5);
+                        self.reg[dr] = self.reg[sr1] & imm5;
+                    }
+
+                    self.setcc(self.reg[dr]);
+                }
                 Op::LEA => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
