@@ -1,6 +1,5 @@
 use crate::{sign_extend, Op, Program, Trap, MEMORY_MAX};
 use std::io::{stdin, stdout, Error, Read, Write};
-use std::process;
 
 pub struct VirtualMachine {
     pc: u16,
@@ -10,9 +9,10 @@ pub struct VirtualMachine {
     reg: [u16; 8],
 }
 
-const COND_N: u16 = 2;
-const COND_Z: u16 = 1;
-const COND_P: u16 = 0;
+const COND_POS: u16 = 1<<0;
+const COND_ZRO: u16 = 1<<1;
+const COND_NEG: u16 = 1<<2;
+
 const MEM_KBSR: usize = 0xfe00; /* keyboard status */
 const MEM_KBDR: usize = 0xfe02; /* keyboard data */
 
@@ -40,6 +40,7 @@ impl VirtualMachine {
 
         loop {
             let inst = self.mem[self.pc as usize];
+            // DEBUG: eprintln!("PC {:04x}; inst: {:04x}", self.pc, inst);
             self.pc += 1;
             let op = inst >> 12;
             match Op::from(op) {
@@ -99,7 +100,7 @@ impl VirtualMachine {
                         self.pc = self.reg[base_r];
                     } else {
                         let pcoffset11 = sign_extend(inst & 0x7ff, 11);
-                        self.pc += pcoffset11;
+                        self.pc = self.pc.wrapping_add(pcoffset11);
                     }
                 }
                 Op::LD => {
@@ -113,7 +114,7 @@ impl VirtualMachine {
                 Op::LDI => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let mut addr = (self.pc + pcoffset9) as usize;
+                    let mut addr = (self.pc.wrapping_add(pcoffset9)) as usize;
                     addr = self.read_mem(addr) as usize;
                    
                     self.reg[dr] = self.read_mem(addr);
@@ -132,7 +133,7 @@ impl VirtualMachine {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     
-                    self.reg[dr] = self.pc + pcoffset9;
+                    self.reg[dr] = self.pc.wrapping_add(pcoffset9);
                     self.setcc(pcoffset9);
                 }
                 Op::NOT => {
@@ -152,7 +153,7 @@ impl VirtualMachine {
                 Op::STI => {
                     let sr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let mut addr = (self.pc + pcoffset9) as usize;
+                    let mut addr = (self.pc.wrapping_add(pcoffset9)) as usize;
                     
                     addr = self.read_mem(addr) as usize;
                     self.mem[addr] = self.reg[sr];
@@ -188,7 +189,7 @@ impl VirtualMachine {
                             let mut out = stdout();
 
                             while self.mem[addr] != 0 {
-                                let b = (self.mem[addr] & 0x00ff) as u8;
+                                let b = self.mem[addr] as u8;
                                 // TODO handle result
                                 let _ = out.write(&[b]);
                                 addr += 1;
@@ -233,12 +234,12 @@ impl VirtualMachine {
 
     fn setcc(&mut self, value: u16) {
         // in 2s complement if the uppermost bit is set it's negative
-        if value & 0x8000 == 0 {
-            self.cond = COND_N;
+        if value >> 15 == 1 {
+            self.cond = COND_NEG;
         } else if value == 0 {
-            self.cond = COND_Z;
+            self.cond = COND_ZRO;
         } else {
-            self.cond = COND_P;
+            self.cond = COND_POS;
         }
     }
 }
@@ -247,9 +248,5 @@ fn read_byte() -> u8 {
     let mut buf: [u8; 1] = [0];
     // TODO handle result
     let _ = stdin().read_exact(&mut buf);
-    if buf[0] == 0x03 { // Ctrl-C
-        eprintln!("Ctrl-C pressed; exiting...");
-        process::exit(1);
-    }
     buf[0]
 }
