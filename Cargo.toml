@@ -18,9 +18,9 @@ name = "lc3vm"
 
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
-crossterm = "0.27.0"
 lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }
 rstest = "0.21.0"
+termios = "0.3.3"
 
 [build-dependencies]
 lalrpop = "0.20.0"

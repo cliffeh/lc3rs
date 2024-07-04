@@ -1,6 +1,6 @@
 use crate::{sign_extend, Op, Program, Trap, MEMORY_MAX};
-use crossterm::event::{read, Event, KeyCode};
 use std::io::{stdin, stdout, Error, Read, Write};
+use std::process;
 
 pub struct VirtualMachine {
     pc: u16,
@@ -51,7 +51,8 @@ impl VirtualMachine {
                     if imm == 0 {
                         // 3 registers
                         let sr2 = (inst & 0x7) as usize;
-                        self.reg[dr] = self.reg[sr1] + self.reg[sr2];
+                        self.reg[dr] = self.reg[sr1].wrapping_add(self.reg[sr2]);
+                        
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5);
                         self.reg[dr] = self.reg[sr1].wrapping_add(imm5);
@@ -80,7 +81,7 @@ impl VirtualMachine {
                     let flags = (inst >> 9) & 0x7;
 
                     if flags & self.cond != 0 {
-                        self.pc += pcoffset9;
+                        self.pc = self.pc.wrapping_add(pcoffset9);
                     }
                 }
                 Op::JMP => {
@@ -88,6 +89,9 @@ impl VirtualMachine {
                     self.pc = self.reg[base_r];
                 }
                 Op::JSR => {
+                    // store our return address
+                    self.reg[7] = self.pc;
+                    
                     let flag = (inst >> 11) & 0x1;
                     if flag == 0 {
                         // JSRR
@@ -102,8 +106,8 @@ impl VirtualMachine {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let addr = (self.pc.wrapping_add(pcoffset9)) as usize;
+                    
                     self.reg[dr] = self.read_mem(addr);
-
                     self.setcc(self.reg[dr]);
                 }
                 Op::LDI => {
@@ -111,8 +115,8 @@ impl VirtualMachine {
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let mut addr = (self.pc + pcoffset9) as usize;
                     addr = self.read_mem(addr) as usize;
+                   
                     self.reg[dr] = self.read_mem(addr);
-
                     self.setcc(self.reg[dr]);
                 }
                 Op::LDR => {
@@ -122,18 +126,20 @@ impl VirtualMachine {
                     let addr = (self.reg[base_r].wrapping_add(offset6)) as usize;
 
                     self.reg[dr] = self.read_mem(addr);
+                    self.setcc(self.reg[dr]);
                 }
                 Op::LEA => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+                    
                     self.reg[dr] = self.pc + pcoffset9;
                     self.setcc(pcoffset9);
                 }
                 Op::NOT => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let sr = ((inst >> 6) & 0x7) as usize;
+                    
                     self.reg[dr] = !self.reg[sr];
-
                     self.setcc(self.reg[dr]);
                 }
                 Op::ST => {
@@ -147,8 +153,8 @@ impl VirtualMachine {
                     let sr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let mut addr = (self.pc + pcoffset9) as usize;
+                    
                     addr = self.read_mem(addr) as usize;
-
                     self.mem[addr] = self.reg[sr];
                 }
                 Op::STR => {
@@ -166,10 +172,8 @@ impl VirtualMachine {
                     let trapvect8 = inst & 0x00ff;
                     match Trap::from(trapvect8) {
                         Trap::GETC => {
-                            let mut buf: [u8; 1] = [0];
-                            // TODO handle result
-                            let _ = stdin().read_exact(&mut buf);
-                            self.reg[0] = buf[0] as u16;
+                            let b = read_byte();
+                            self.reg[0] = b as u16;
                             self.setcc(self.reg[0]);
                         }
                         Trap::OUT => {
@@ -194,14 +198,12 @@ impl VirtualMachine {
                         }
                         Trap::IN => {
                             println!("Enter a character: ");
-                            let mut buf: [u8; 1] = [0];
-                            // TODO handle result
-                            let _ = stdin().read_exact(&mut buf);
+                            let b = read_byte();
                             let mut out = stdout();
-                            let _ = out.write(&buf);
+                            let _ = out.write(&[b]);
                             // TODO handle result
                             let _ = out.flush();
-                            self.reg[0] = buf[0] as u16;
+                            self.reg[0] = b as u16;
                             self.setcc(self.reg[0]);
                         }
                         Trap::HALT => {
@@ -221,26 +223,9 @@ impl VirtualMachine {
 
     fn read_mem(&mut self, addr: usize) -> u16 {
         if addr == MEM_KBSR {
-            let event = read().unwrap();
-            loop {
-                match event {
-                    Event::Key(key) => {
-                        self.mem[MEM_KBSR] = 1 << 15;
-                        match key.code {
-                            KeyCode::Char(c) => {
-                                self.mem[MEM_KBDR] = c as u16;
-                                break;
-                            }
-                            _ => {
-                                // TODO match other key codes?
-                            }
-                        }
-                    }
-                    _ => {
-                        // TODO match other event types?
-                    }
-                }
-            }
+            let b = read_byte();
+            self.mem[MEM_KBSR] = 1 << 15;
+            self.mem[MEM_KBDR] = b as u16;
         }
 
         return self.mem[addr];
@@ -256,4 +241,15 @@ impl VirtualMachine {
             self.cond = COND_P;
         }
     }
+}
+
+fn read_byte() -> u8 {
+    let mut buf: [u8; 1] = [0];
+    // TODO handle result
+    let _ = stdin().read_exact(&mut buf);
+    if buf[0] == 0x03 { // Ctrl-C
+        eprintln!("Ctrl-C pressed; exiting...");
+        process::exit(1);
+    }
+    buf[0]
 }
