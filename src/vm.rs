@@ -2,8 +2,10 @@ use crate::{sign_extend, Op, Program, Trap, MEMORY_MAX};
 use std::io::{stdin, stdout, Error, Read, Write};
 
 pub struct VirtualMachine {
+    // program counter
     pc: u16,
-    cond: u16,
+    // processor status register
+    psr: u16,
     mem: [u16; MEMORY_MAX],
     // 8 general-purpose registers
     reg: [u16; 8],
@@ -13,14 +15,22 @@ const COND_POS: u16 = 1 << 0;
 const COND_ZRO: u16 = 1 << 1;
 const COND_NEG: u16 = 1 << 2;
 
-const MEM_KBSR: usize = 0xfe00; /* keyboard status */
-const MEM_KBDR: usize = 0xfe02; /* keyboard data */
+const MEM_KBSR: usize = 0xfe00; /* keyboard status register */
+const MEM_KBDR: usize = 0xfe02; /* keyboard data register */
+
+// unused in this implementation, but included for completeness' sake
+#[allow(dead_code)]
+const MEM_DSR: usize = 0xfe04; /* display status register */
+#[allow(dead_code)]
+const MEM_DDR: usize = 0xfe06; /* display data register */
+
+const MEM_MCR: usize = 0xfffe; /* machine control register */
 
 impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         VirtualMachine {
             pc: 0u16,
-            cond: 0u16,
+            psr: 0u16,
             mem: [0u16; MEMORY_MAX],
             reg: [0u16; 8],
         }
@@ -37,8 +47,9 @@ impl VirtualMachine {
 
     pub fn execute(&mut self) {
         self.pc = 0x3000;
+        self.mem[MEM_MCR] = 1 << 15;
 
-        loop {
+        while self.mem[MEM_MCR] >> 15 == 1 {
             let inst = self.mem[self.pc as usize];
             // DEBUG: eprintln!("PC {:04x}; inst: {:04x}", self.pc, inst);
             self.pc += 1;
@@ -80,7 +91,7 @@ impl VirtualMachine {
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let flags = (inst >> 9) & 0x7;
 
-                    if flags & self.cond != 0 {
+                    if flags & (self.psr & 0x7) != 0 {
                         self.pc = self.pc.wrapping_add(pcoffset9);
                     }
                 }
@@ -228,7 +239,8 @@ impl VirtualMachine {
                             let _ = out.flush();
                         }
                         Trap::HALT => {
-                            return;
+                            // clearing the uppermost bit stops processing
+                            self.mem[MEM_MCR] = self.mem[MEM_MCR] & 0x7fff;
                         }
                     }
                 }
@@ -251,13 +263,16 @@ impl VirtualMachine {
     }
 
     fn setcc(&mut self, value: u16) {
+        // clear the old condition code before setting the new one
+        self.psr = self.psr & 0xfff8;
+
         // in 2s complement if the uppermost bit is set it's negative
         if value >> 15 == 1 {
-            self.cond = COND_NEG;
+            self.psr = self.psr | COND_NEG;
         } else if value == 0 {
-            self.cond = COND_ZRO;
+            self.psr = self.psr | COND_ZRO;
         } else {
-            self.cond = COND_POS;
+            self.psr = self.psr | COND_POS;
         }
     }
 }
