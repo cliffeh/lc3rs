@@ -3,6 +3,7 @@ use std::io::{Error, Read, Write};
 mod asm;
 pub mod vm;
 pub use asm::assemble;
+use std::fmt;
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
@@ -182,6 +183,15 @@ impl From<u16> for Trap {
             0x25 => Trap::HALT,
             _ => unreachable!(),
         }
+    }
+}
+
+impl fmt::Display for Program {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, ".ORIG x{:04X}", self.orig)?;
+        write!(f, ".END")?;
+
+        Ok(())
     }
 }
 
