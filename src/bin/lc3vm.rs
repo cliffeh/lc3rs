@@ -1,7 +1,7 @@
 use lc3::vm::VirtualMachine;
 use std::env;
 use std::fs;
-use termios::{Termios, tcsetattr, TCSANOW, ICANON, ECHO};
+use termios::{tcsetattr, Termios, ECHO, ICANON, TCSANOW};
 
 pub fn main() {
     // Save the current terminal settings (0 == stdin)
@@ -13,7 +13,6 @@ pub fn main() {
 
     // Apply the new settings immediately
     tcsetattr(0, TCSANOW, &new_termios).unwrap();
-
 
     let mut vm = VirtualMachine::new();
     let filename = env::args().nth(1).expect("Expected file argument");

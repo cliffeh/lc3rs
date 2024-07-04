@@ -9,9 +9,9 @@ pub struct VirtualMachine {
     reg: [u16; 8],
 }
 
-const COND_POS: u16 = 1<<0;
-const COND_ZRO: u16 = 1<<1;
-const COND_NEG: u16 = 1<<2;
+const COND_POS: u16 = 1 << 0;
+const COND_ZRO: u16 = 1 << 1;
+const COND_NEG: u16 = 1 << 2;
 
 const MEM_KBSR: usize = 0xfe00; /* keyboard status */
 const MEM_KBDR: usize = 0xfe02; /* keyboard data */
@@ -53,7 +53,6 @@ impl VirtualMachine {
                         // 3 registers
                         let sr2 = (inst & 0x7) as usize;
                         self.reg[dr] = self.reg[sr1].wrapping_add(self.reg[sr2]);
-                        
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5);
                         self.reg[dr] = self.reg[sr1].wrapping_add(imm5);
@@ -92,7 +91,7 @@ impl VirtualMachine {
                 Op::JSR => {
                     // store our return address
                     self.reg[7] = self.pc;
-                    
+
                     let flag = (inst >> 11) & 0x1;
                     if flag == 0 {
                         // JSRR
@@ -107,7 +106,7 @@ impl VirtualMachine {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let addr = (self.pc.wrapping_add(pcoffset9)) as usize;
-                    
+
                     self.reg[dr] = self.read_mem(addr);
                     self.setcc(self.reg[dr]);
                 }
@@ -116,7 +115,7 @@ impl VirtualMachine {
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let mut addr = (self.pc.wrapping_add(pcoffset9)) as usize;
                     addr = self.read_mem(addr) as usize;
-                   
+
                     self.reg[dr] = self.read_mem(addr);
                     self.setcc(self.reg[dr]);
                 }
@@ -132,14 +131,14 @@ impl VirtualMachine {
                 Op::LEA => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    
+
                     self.reg[dr] = self.pc.wrapping_add(pcoffset9);
                     self.setcc(pcoffset9);
                 }
                 Op::NOT => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let sr = ((inst >> 6) & 0x7) as usize;
-                    
+
                     self.reg[dr] = !self.reg[sr];
                     self.setcc(self.reg[dr]);
                 }
@@ -154,7 +153,7 @@ impl VirtualMachine {
                     let sr = ((inst >> 9) & 0x7) as usize;
                     let pcoffset9 = sign_extend(inst & 0x1ff, 9);
                     let mut addr = (self.pc.wrapping_add(pcoffset9)) as usize;
-                    
+
                     addr = self.read_mem(addr) as usize;
                     self.mem[addr] = self.reg[sr];
                 }
@@ -207,15 +206,34 @@ impl VirtualMachine {
                             self.reg[0] = b as u16;
                             self.setcc(self.reg[0]);
                         }
-                        Trap::HALT => {
-                            break;
+                        Trap::PUTSP => {
+                            // two bytes per address
+                            let mut addr = self.reg[0] as usize;
+                            let mut out = stdout();
+
+                            while self.mem[addr] != 0 {
+                                let mut b = (self.mem[addr] & 0xff) as u8;
+                                // TODO handle result
+                                let _ = out.write(&[b]);
+                                b = (self.mem[addr] >> 8) as u8;
+                                // A character string consisting of an odd number of characters
+                                // to be written will have x00 in bits [15:8] of the memory location
+                                // containing the last character to be written.
+                                if b != 0 {
+                                    let _ = out.write(&[b]);
+                                }
+                                addr += 1;
+                            }
+                            // TODO handle result
+                            let _ = out.flush();
                         }
-                        _ => {
-                            unimplemented!();
+                        Trap::HALT => {
+                            return;
                         }
                     }
                 }
-                _ => {
+                Op::RTI | Op::RES => {
+                    // RTI is unimplemented, RES is reserved
                     unimplemented!();
                 }
             }
