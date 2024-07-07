@@ -115,11 +115,14 @@ impl Program {
     ///
     /// let mut prog = Program::default();
     ///
-    /// let mut br = BufReader::new("x3020 foo\nx4200 bar".as_bytes());
+    /// let mut br = BufReader::new("x3020 foo x1,x2\nx4200 bar".as_bytes());
     /// let _ = prog.load_symbols(&mut br);
     ///
     /// assert_eq!(prog.syms.get("foo").unwrap(), &0x3020u16);
     /// assert_eq!(prog.syms.get("bar").unwrap(), &0x4200u16);
+    /// // also check that it loaded refs correctly
+    /// assert_eq!(prog.refs.get(&0x1u16).unwrap().0, "foo".to_string());
+    /// assert_eq!(prog.refs.get(&0x2u16).unwrap().0, "foo".to_string());
     ///
     /// ```
     pub fn load_symbols(&mut self, r: &mut dyn Read) -> Result<(), Error> {
@@ -131,7 +134,15 @@ impl Program {
             let addr = u16::from_str_radix(&s, 16).unwrap();
             let symbol = String::from(split.next().unwrap());
 
-            self.syms.insert(symbol, addr);
+            self.syms.insert(symbol.clone(), addr);
+
+            if let Some(rest) = split.next() {
+                let refstr = rest.split(",");
+                for s in refstr {
+                    let iaddr = u16::from_str_radix(&s[1..], 16).unwrap();
+                    self.refs.insert(iaddr, (symbol.clone(), 0));
+                }
+            }
         }
 
         Ok(())
@@ -299,7 +310,8 @@ impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, ".ORIG x{:04X}", self.orig)?;
 
-        for inst in self.mem.iter() {
+        for iaddr in 0..self.mem.len() {
+            let inst = self.mem[iaddr];
             match Op::from(inst >> 12) {
                 Op::ADD => {
                     let dr = ((inst >> 9) & 0x7) as usize;
@@ -345,8 +357,11 @@ impl fmt::Display for Program {
                         write!(f, "p")?;
                     }
 
-                    // TODO reverse symbol lookup
-                    writeln!(f, " x{:04X}", pcoffset9)?;
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
                 }
                 _ => { /* unimplemented!()*/ }
             }

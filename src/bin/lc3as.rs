@@ -120,9 +120,10 @@ fn assemble_program(
 fn disassemble_program(
     input: &mut impl Read,
     output: &mut impl Write,
-    _symbols: &mut impl Read, // TODO use me!
+    symbols: &mut impl Read, // TODO use me!
 ) -> Result<(), Error> {
-    let prog = Program::read(input)?;
+    let mut prog = Program::read(input)?;
+    let _ = prog.load_symbols(symbols);
 
     write!(output, "{}", prog)?;
 
