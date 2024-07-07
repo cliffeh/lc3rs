@@ -11,12 +11,12 @@ pub struct VirtualMachine {
     reg: [u16; 8],
 }
 
-const COND_POS: u16 = 1 << 0;
-const COND_ZRO: u16 = 1 << 1;
-const COND_NEG: u16 = 1 << 2;
+pub const COND_POS: u16 = 1 << 0;
+pub const COND_ZRO: u16 = 1 << 1;
+pub const COND_NEG: u16 = 1 << 2;
 
-const MEM_KBSR: usize = 0xfe00; /* keyboard status register */
-const MEM_KBDR: usize = 0xfe02; /* keyboard data register */
+pub const MEM_KBSR: usize = 0xfe00; /* keyboard status register */
+pub const MEM_KBDR: usize = 0xfe02; /* keyboard data register */
 
 // unused in this implementation, but included for completeness' sake
 #[allow(dead_code)]
