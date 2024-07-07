@@ -473,7 +473,12 @@ impl fmt::Display for Program {
                         writeln!(f, "TRAP x{:04X}", trapvect8)?;
                     }
                 }
-                _ => { /* unimplemented!()*/ }
+                Op::RTI => {
+                    writeln!(f, "RTI")?;
+                }
+                Op::RES => {
+                    unimplemented!();
+                }
             }
         }
 
