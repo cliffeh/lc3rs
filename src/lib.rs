@@ -313,6 +313,10 @@ impl fmt::Display for Program {
         writeln!(f, ".ORIG x{:04X}", self.orig)?;
 
         for iaddr in 0..self.mem.len() {
+            if let Some(symbol) = self.lookup_symbol_by_address(iaddr as u16 + self.orig) {
+                write!(f, "{} ", symbol)?;
+            }
+
             let inst = self.mem[iaddr];
             match Op::from(inst >> 12) {
                 Op::ADD => {
