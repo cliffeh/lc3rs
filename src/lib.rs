@@ -269,7 +269,7 @@ impl Default for Program {
 }
 
 impl From<u16> for Op {
-    fn from(value: u16) -> Op {
+    fn from(value: u16) -> Self {
         match value {
             0x0 => Op::BR,
             0x1 => Op::ADD,
@@ -292,16 +292,18 @@ impl From<u16> for Op {
     }
 }
 
-impl From<u16> for Trap {
-    fn from(value: u16) -> Trap {
+impl TryFrom<u16> for Trap {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            0x20 => Trap::GETC,
-            0x21 => Trap::OUT,
-            0x22 => Trap::PUTS,
-            0x23 => Trap::IN,
-            0x24 => Trap::PUTSP,
-            0x25 => Trap::HALT,
-            _ => unreachable!(),
+            0x20 => Ok(Trap::GETC),
+            0x21 => Ok(Trap::OUT),
+            0x22 => Ok(Trap::PUTS),
+            0x23 => Ok(Trap::IN),
+            0x24 => Ok(Trap::PUTSP),
+            0x25 => Ok(Trap::HALT),
+            _ => Err(()),
         }
     }
 }
@@ -314,13 +316,13 @@ impl fmt::Display for Program {
             let inst = self.mem[iaddr];
             match Op::from(inst >> 12) {
                 Op::ADD => {
-                    let dr = ((inst >> 9) & 0x7) as usize;
-                    let sr1 = ((inst >> 6) & 0x7) as usize;
+                    let dr = (inst >> 9) & 0x7;
+                    let sr1 = (inst >> 6) & 0x7;
                     let imm = (inst >> 5) & 0x1;
 
                     if imm == 0 {
                         // 3 registers
-                        let sr2 = (inst & 0x7) as usize;
+                        let sr2 = inst & 0x7;
                         writeln!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5) as i16;
@@ -328,13 +330,13 @@ impl fmt::Display for Program {
                     }
                 }
                 Op::AND => {
-                    let dr = ((inst >> 9) & 0x7) as usize;
-                    let sr1 = ((inst >> 6) & 0x7) as usize;
+                    let dr = (inst >> 9) & 0x7;
+                    let sr1 = (inst >> 6) & 0x7;
                     let imm = (inst >> 5) & 0x1;
 
                     if imm == 0 {
                         // 3 registers
-                        let sr2 = (inst & 0x7) as usize;
+                        let sr2 = inst & 0x7;
                         writeln!(f, "AND R{}, R{}, R{}", dr, sr1, sr2)?;
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5) as i16;
@@ -363,6 +365,114 @@ impl fmt::Display for Program {
                         writeln!(f, " x{:04X}", pcoffset9)?;
                     }
                 }
+                Op::JMP => {
+                    let base_r = (inst >> 6) & 0x7;
+                    writeln!(f, "JMP R{}", base_r)?;
+                }
+                Op::JSR => {
+                    let flag = (inst >> 11) & 0x1;
+                    if flag == 0 {
+                        // JSRR
+                        let base_r = (inst >> 6) & 0x7;
+                        writeln!(f, "JSRR R{}", base_r)?;
+                    } else {
+                        let pcoffset11 = sign_extend(inst & 0x7ff, 11);
+
+                        write!(f, "JSR")?;
+
+                        if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                            writeln!(f, " {}", symbol)?;
+                        } else {
+                            writeln!(f, "x {:04X}", pcoffset11)?;
+                        }
+                    }
+                }
+                Op::LD => {
+                    let dr = (inst >> 9) & 0x7;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+
+                    write!(f, "LD R{},", dr)?;
+
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
+                }
+                Op::LDI => {
+                    let dr = (inst >> 9) & 0x7;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+
+                    write!(f, "LDI R{},", dr)?;
+
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
+                }
+                Op::LDR => {
+                    let dr = (inst >> 9) & 0x7;
+                    let base_r = (inst >> 6) & 0x7;
+                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
+                    writeln!(f, "LDR R{}, R{}, #{}", dr, base_r, offset6)?;
+                }
+                Op::LEA => {
+                    let dr = (inst >> 9) & 0x7;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+
+                    write!(f, "LEA R{},", dr)?;
+
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
+                }
+                Op::NOT => {
+                    let dr = (inst >> 9) & 0x7;
+                    let sr = (inst >> 6) & 0x7;
+
+                    writeln!(f, "NOT R{}, R{}", dr, sr)?;
+                }
+                Op::ST => {
+                    let sr = (inst >> 9) & 0x7;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+
+                    write!(f, "ST R{},", sr)?;
+
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
+                }
+                Op::STI => {
+                    let sr = (inst >> 9) & 0x7;
+                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
+
+                    write!(f, "STI R{},", sr)?;
+
+                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                        writeln!(f, " {}", symbol)?;
+                    } else {
+                        writeln!(f, " x{:04X}", pcoffset9)?;
+                    }
+                }
+                Op::STR => {
+                    let sr = (inst >> 9) & 0x7;
+                    let base_r = (inst >> 6) & 0x7;
+                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
+                    writeln!(f, "STR R{}, R{}, #{}", sr, base_r, offset6)?;
+                }
+                Op::TRAP => {
+                    if let Ok(trap) = Trap::try_from(inst & 0x00ff) {
+                        writeln!(f, "{}", trap)?;
+                    } else {
+                        let trapvect8 = inst & 0x00ff;
+                        writeln!(f, "TRAP x{:04X}", trapvect8)?;
+                    }
+                }
                 _ => { /* unimplemented!()*/ }
             }
         }
@@ -370,6 +480,19 @@ impl fmt::Display for Program {
         writeln!(f, ".END")?;
 
         Ok(())
+    }
+}
+
+impl fmt::Display for Trap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Trap::GETC => write!(f, "GETC"),
+            Trap::OUT => write!(f, "OUT"),
+            Trap::PUTS => write!(f, "PUTS"),
+            Trap::IN => write!(f, "IN"),
+            Trap::PUTSP => write!(f, "PUTSP"),
+            Trap::HALT => write!(f, "HALT"),
+        }
     }
 }
 

@@ -180,7 +180,7 @@ impl VirtualMachine {
                     self.reg[7] = self.pc;
 
                     let trapvect8 = inst & 0x00ff;
-                    match Trap::from(trapvect8) {
+                    match Trap::try_from(trapvect8).unwrap() {
                         Trap::GETC => {
                             let b = read_byte();
                             self.reg[0] = b as u16;
