@@ -17,10 +17,12 @@ pub fn assemble(r: &mut dyn Read) -> Result<Program, Error> {
     Ok(prog)
 }
 
-// pub fn disassemble(insts: Vec<u16>) {
-//     for inst in insts {
+// pub fn disassemble(prog: Program) {
+//     println!(".ORIG ")
+//     for inst in prog.mem {
 //         let op: Op = Op::from(inst >> 12);
 //         match op {
+//             Op
 //             Op::BR => {
 //                 let flags = (inst >> 9) & 0x7;
 //                 let pcoffset9 = inst & 0x1ff;

@@ -189,6 +189,27 @@ impl From<u16> for Trap {
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, ".ORIG x{:04X}", self.orig)?;
+
+        for inst in self.mem.iter() {
+            match Op::from(inst >> 12) {
+                Op::ADD => {
+                    let dr = ((inst >> 9) & 0x7) as usize;
+                    let sr1 = ((inst >> 6) & 0x7) as usize;
+                    let imm = (inst >> 5) & 0x1;
+
+                    if imm == 0 {
+                        // 3 registers
+                        let sr2 = (inst & 0x7) as usize;
+                        write!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
+                    } else {
+                        let imm5 = sign_extend(inst & 0x1f, 5) as i16;
+                        write!(f, "ADD R{}, R{}, #{}", dr, sr1, imm5)?;
+                    }
+                },
+                _ => { /* unimplemented!()*/ },
+            }
+        }
+
         write!(f, ".END")?;
 
         Ok(())

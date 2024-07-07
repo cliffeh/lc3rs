@@ -53,8 +53,7 @@ impl VirtualMachine {
             let inst = self.mem[self.pc as usize];
             // DEBUG: eprintln!("PC {:04x}; inst: {:04x}", self.pc, inst);
             self.pc += 1;
-            let op = inst >> 12;
-            match Op::from(op) {
+            match Op::from(inst >> 12) {
                 Op::ADD => {
                     let dr = ((inst >> 9) & 0x7) as usize;
                     let sr1 = ((inst >> 6) & 0x7) as usize;
