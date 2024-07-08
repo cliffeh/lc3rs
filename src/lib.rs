@@ -46,7 +46,7 @@ pub struct Program {
     /// Used for assembly, this maps relative instruction addresses onto the
     /// symbols they reference and the mask to use when resolving the address
     /// of the symbol.
-    pub refs: HashMap<u16, (String, u16)>,
+    pub refs: HashMap<u16, (String, Option<u16>)>,
 }
 
 impl Program {
@@ -140,7 +140,7 @@ impl Program {
                 let refstr = rest.split(",");
                 for s in refstr {
                     let iaddr = u16::from_str_radix(&s[1..], 16).unwrap();
-                    self.refs.insert(iaddr, (symbol.clone(), 0));
+                    self.refs.insert(iaddr, (symbol.clone(), None));
                 }
             }
         }
@@ -153,16 +153,15 @@ impl Program {
     /// the instruction. Panics if there is an undefined symbol.
     pub fn resolve_symbols(&mut self) {
         // instruction address
-        for (iaddr, (symbol, mask)) in self.refs.iter() {
+        for (iaddr, (symbol, maskopt)) in self.refs.iter() {
             // symbol address
             if let Some(saddr) = self.syms.get(symbol) {
-                match mask {
-                    0 => self.mem[*iaddr as usize] = (self.orig + saddr) as u16, // .FILL
-                    _ => {
-                        // relative to the incremented PC
-                        self.mem[*iaddr as usize] |=
-                            ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
-                    }
+                if let Some(mask) = maskopt {
+                    // relative to the incremented PC
+                    self.mem[*iaddr as usize] |=
+                        ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
+                } else {
+                    self.mem[*iaddr as usize] = (self.orig + saddr) as u16; // .FILL
                 }
             } else {
                 panic!("undefined symbol: {}", symbol);
@@ -208,8 +207,8 @@ impl Program {
     ///
     /// let mut prog = Program::default();
     ///
-    /// let _ = prog.refs.insert(0x1, ("foo".to_string(), 0));
-    /// let _ = prog.refs.insert(0x2, ("foo".to_string(), 0));
+    /// let _ = prog.refs.insert(0x1, ("foo".to_string(), None));
+    /// let _ = prog.refs.insert(0x2, ("foo".to_string(), None));
     ///
     /// let expected: Vec<u16> = vec![1u16, 2u16];
     /// let mut actual = prog.lookup_references_by_symbol(&"foo".to_string());
