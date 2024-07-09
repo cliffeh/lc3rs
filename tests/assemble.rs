@@ -35,8 +35,9 @@ fn test_disassemble(#[files("examples/*.obj")] infile: PathBuf) {
 
     // re-assemble the program from what we've written out
     let actual = assemble(&mut Cursor::new(output)).unwrap();
-    // let _ = expected.load_symbols(&mut fs::File::open(symfile.clone()).unwrap());
 
     // ...and test that the assembled object code is the same
-   // assert_eq!(actual.mem, expected.mem);
+    for pos in 0..actual.mem.len() {
+        assert_eq!(actual.mem[pos], expected.mem[pos], "checking mem[{}]: x{:04X} x{:04X}", pos, actual.mem[pos], expected.mem[pos]);
+    }
 }
