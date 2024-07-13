@@ -36,10 +36,6 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
-pub enum Instruction {
-    Add(u16, u16, bool, u16),
-}
-
 pub struct Program {
     /// Origin address of the program
     pub orig: u16,
@@ -518,10 +514,15 @@ impl fmt::Display for Program {
                     }
                 }
                 Op::RTI => {
-                    writeln!(f, "RTI")?;
+                    if inst == 1 << 15 {
+                        writeln!(f, "RTI")?;
+                    } else {
+                        writeln!(f, ".FILL x{:04X}", inst)?;
+                    }
                 }
                 Op::RES => {
-                    unimplemented!();
+                    // reserved, so we'll just always assume this is a .FILL
+                    writeln!(f, ".FILL x{:04X}", inst)?;
                 }
             }
         }
