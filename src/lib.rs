@@ -36,6 +36,10 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
+pub enum Instruction {
+    Add(u16, u16, bool, u16),
+}
+
 pub struct Program {
     /// Origin address of the program
     pub orig: u16,
@@ -312,11 +316,24 @@ impl fmt::Display for Program {
         writeln!(f, ".ORIG x{:04X}", self.orig)?;
 
         for iaddr in 0..self.mem.len() {
+            // write!(f, "x{:04X} ", iaddr)?;
+
             if let Some(symbol) = self.lookup_symbol_by_address(iaddr as u16 + self.orig) {
                 write!(f, "{} ", symbol)?;
             }
 
             let inst = self.mem[iaddr];
+
+            if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
+                if let Some(saddr) = self.syms.get(symbol) {
+                    // do you believe in coincidence?
+                    if *saddr == inst {
+                        writeln!(f, ".FILL {}", symbol)?;
+                        continue;
+                    }
+                }
+            }
+
             match Op::from(inst >> 12) {
                 Op::ADD => {
                     let dr = (inst >> 9) & 0x7;
@@ -326,7 +343,11 @@ impl fmt::Display for Program {
                     if imm == 0 {
                         // 3 registers
                         let sr2 = inst & 0x7;
-                        writeln!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
+                        if inst & (0x7 << 2) == 0 {
+                            writeln!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
+                        } else {
+                            writeln!(f, ".FILL x{:04X}", inst)?;
+                        }
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5) as i16;
                         writeln!(f, "ADD R{}, R{}, #{}", dr, sr1, imm5)?;
@@ -340,7 +361,11 @@ impl fmt::Display for Program {
                     if imm == 0 {
                         // 3 registers
                         let sr2 = inst & 0x7;
-                        writeln!(f, "AND R{}, R{}, R{}", dr, sr1, sr2)?;
+                        if inst & (0x7 << 2) == 0 {
+                            writeln!(f, "AND R{}, R{}, R{}", dr, sr1, sr2)?;
+                        } else {
+                            writeln!(f, ".FILL x{:04X}", inst)?;
+                        }
                     } else {
                         let imm5 = sign_extend(inst & 0x1f, 5) as i16;
                         writeln!(f, "AND R{}, R{}, #{}", dr, sr1, imm5)?;
@@ -369,24 +394,36 @@ impl fmt::Display for Program {
                     }
                 }
                 Op::JMP => {
-                    let base_r = (inst >> 6) & 0x7;
-                    writeln!(f, "JMP R{}", base_r)?;
+                    if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
+                        let base_r = (inst >> 6) & 0x7;
+                        if base_r == 7 {
+                            writeln!(f, "RET")?;
+                        } else {
+                            writeln!(f, "JMP R{}", base_r)?;
+                        }
+                    } else {
+                        writeln!(f, ".FILL x{:04X}", inst)?;
+                    }
                 }
                 Op::JSR => {
                     let flag = (inst >> 11) & 0x1;
                     if flag == 0 {
                         // JSRR
-                        let base_r = (inst >> 6) & 0x7;
-                        writeln!(f, "JSRR R{}", base_r)?;
+                        if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
+                            let base_r = (inst >> 6) & 0x7;
+                            writeln!(f, "JSRR R{}", base_r)?;
+                        } else {
+                            writeln!(f, ".FILL {:04X}", inst)?;
+                        }
                     } else {
-                        let pcoffset11 = sign_extend(inst & 0x7ff, 11);
+                        let pcoffset11 = inst & 0x7ff;
 
                         write!(f, "JSR")?;
 
                         if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
                             writeln!(f, " {}", symbol)?;
                         } else {
-                            writeln!(f, "x {:04X}", pcoffset11)?;
+                            writeln!(f, " x{:04X}", pcoffset11)?;
                         }
                     }
                 }
@@ -469,11 +506,15 @@ impl fmt::Display for Program {
                     writeln!(f, "STR R{}, R{}, #{}", sr, base_r, offset6)?;
                 }
                 Op::TRAP => {
-                    if let Ok(trap) = Trap::try_from(inst & 0x00ff) {
-                        writeln!(f, "{}", trap)?;
+                    if inst & (0xf << 8) == 0 {
+                        if let Ok(trap) = Trap::try_from(inst & 0x00ff) {
+                            writeln!(f, "{}", trap)?;
+                        } else {
+                            let trapvect8 = inst & 0x00ff;
+                            writeln!(f, "TRAP x{:04X}", trapvect8)?;
+                        }
                     } else {
-                        let trapvect8 = inst & 0x00ff;
-                        writeln!(f, "TRAP x{:04X}", trapvect8)?;
+                        writeln!(f, ".FILL x{:04X}", inst)?;
                     }
                 }
                 Op::RTI => {

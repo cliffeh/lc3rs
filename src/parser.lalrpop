@@ -46,15 +46,15 @@ Op: u16 = {
 
   // 1 register and a label or a PCoffset9
   <op:LD>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, (label.to_string(), Some(0x1ff))); op | r << 9 },
-  <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LD>  <r:Reg> "," <pcoffset9:NumLit> => op | r << 9 | (pcoffset9 & 0x1ff),
   <op:LDI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, (label.to_string(), Some(0x1ff))); op | r << 9 },
-  <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LDI> <r:Reg> "," <pcoffset9:NumLit> => op | r << 9 | (pcoffset9 & 0x1ff),
   <op:LEA> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, (label.to_string(), Some(0x1ff))); op | r << 9 },
-  <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:LEA> <r:Reg> "," <pcoffset9:NumLit> => op | r << 9 | (pcoffset9 & 0x1ff),
   <op:ST>  <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, (label.to_string(), Some(0x1ff))); op | r << 9 },
-  <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:ST>  <r:Reg> "," <pcoffset9:NumLit> => op | r << 9 | (pcoffset9 & 0x1ff),
   <op:STI> <r:Reg> "," <label:Label> => { prog.refs.insert(prog.mem.len() as u16, (label.to_string(), Some(0x1ff))); op | r << 9 },
-  <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | (pcoffset9 & 0x1ff),
+  <op:STI> <r:Reg> "," <pcoffset9:NumLit> => op | r << 9 | (pcoffset9 & 0x1ff),
 
   // just 1 register
   <op:JMP>  <r:Reg> => op | r << 6,
