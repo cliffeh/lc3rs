@@ -33,7 +33,11 @@ fn test_disassemble_no_symbols(#[files("examples/*.obj")] infile: PathBuf) {
 
     // ...and test that the assembled object code is the same
     for pos in 0..actual.mem.len() {
-        assert_eq!(actual.mem[pos], expected.mem[pos], "checking mem[{}]: x{:04X} x{:04X}", pos, actual.mem[pos], expected.mem[pos]);
+        assert_eq!(
+            actual.mem[pos], expected.mem[pos],
+            "checking mem[{}]: x{:04X} x{:04X}",
+            pos, actual.mem[pos], expected.mem[pos]
+        );
     }
 }
 
@@ -58,6 +62,10 @@ fn test_disassemble_with_symbols(#[files("examples/*.obj")] infile: PathBuf) {
 
     // ...and test that the assembled object code is the same
     for pos in 0..actual.mem.len() {
-        assert_eq!(actual.mem[pos], expected.mem[pos], "checking mem[{}]: x{:04X} x{:04X}", pos, actual.mem[pos], expected.mem[pos]);
+        assert_eq!(
+            actual.mem[pos], expected.mem[pos],
+            "checking mem[{}]: x{:04X} x{:04X}",
+            pos, actual.mem[pos], expected.mem[pos]
+        );
     }
 }
