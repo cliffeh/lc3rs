@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
-mod asm;
+pub mod asm;
 pub mod vm;
 pub use asm::assemble;
 use std::fmt;
@@ -34,6 +34,11 @@ pub enum Trap {
     IN = 0x23,    /* get character from keyboard, echoed onto the terminal */
     PUTSP = 0x24, /* output a byte string */
     HALT = 0x25,  /* halt the program */
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Instruction {
+    Add(u16, u16, bool, u16),
 }
 
 pub struct Program {
@@ -259,7 +264,7 @@ impl Program {
 impl Default for Program {
     fn default() -> Self {
         Program {
-            orig: 0x0, // NB using 0x3000 as a default masks errors...
+            orig: 0x3000,
             mem: vec![],
             syms: HashMap::new(),
             refs: HashMap::new(),
