@@ -141,19 +141,20 @@ pub enum Token {
     // literals
     #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]+", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
-        u16::from_str_radix(&lex.slice()[1..], radix)
+        let value = i16::from_str_radix(&lex.slice()[1..], radix)?;
+        Ok::<u16, ParseError>(value as u16)
     })]
-    NumLit(u16),
+    NUMLIT(u16),
     #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].to_string())]
-    StrLit(String),
+    STRLIT(String),
 
     // labels
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
-    Label(String),
+    LABEL(String),
 
     // punctuation
     #[token(",")]
-    Comma,
+    COMMA,
 }
 
 pub struct ParseStream<'source> {
@@ -162,7 +163,9 @@ pub struct ParseStream<'source> {
 
 impl<'source> ParseStream<'source> {
     pub fn new(source: &'source str) -> Self {
-        ParseStream { lex: Token::lexer(source) }
+        ParseStream {
+            lex: Token::lexer(source),
+        }
     }
 
     pub fn expect_next_token(&mut self) -> Result<Token, ParseError> {
@@ -176,7 +179,7 @@ impl<'source> ParseStream<'source> {
     pub fn expect_comma(&mut self) -> Result<(), ParseError> {
         let token = self.expect_next_token()?;
 
-        if let Token::Comma = token {
+        if let Token::COMMA = token {
             Ok(())
         } else {
             Err(ParseError::UnexpectedToken {
@@ -202,7 +205,7 @@ impl<'source> ParseStream<'source> {
     pub fn expect_numlit(&mut self) -> Result<u16, ParseError> {
         let token = self.expect_next_token()?;
 
-        if let Token::NumLit(value) = token {
+        if let Token::NUMLIT(value) = token {
             Ok(value)
         } else {
             Err(ParseError::UnexpectedToken {
@@ -248,14 +251,14 @@ pub fn parse<'source>(source: &'source impl ToString) -> Result<Program, ParseEr
     prog.orig = stream.expect_numlit()?;
 
     let mut iaddr = 0u16;
-    loop{
+    loop {
         let token = stream.expect_next_token()?;
         match token {
             // TODO what if there is add'l garbage after .END?
             Token::END => {
                 break;
             }
-            Token::Label(label) => {
+            Token::LABEL(label) => {
                 prog.syms.insert(label, iaddr);
             }
             _ => {
@@ -268,7 +271,10 @@ pub fn parse<'source>(source: &'source impl ToString) -> Result<Program, ParseEr
     Ok(prog)
 }
 
-fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction, ParseError> {
+fn parse_instruction(
+    la: Token,
+    stream: &mut ParseStream,
+) -> Result<Instruction, ParseError> {
     match la {
         Token::ADD => {
             let dr = stream.expect_reg()?;
@@ -278,9 +284,35 @@ fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction,
             let token = stream.expect_next_token()?;
             match token {
                 Token::REG(sr2) => Ok(Instruction::Add(dr, sr1, false, sr2)),
-                Token::NumLit(imm5) => Ok(Instruction::Add(dr, sr1, true, imm5 & 0x1f)),
+                Token::NUMLIT(imm5) => Ok(Instruction::Add(dr, sr1, true, imm5)),
                 _ => Err(ParseError::UnexpectedToken {
                     expected: "REG or imm5".to_string(),
+                    found: token,
+                }),
+            }
+        },
+        Token::AND => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let sr1 = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::REG(sr2) => Ok(Instruction::And(dr, sr1, false, sr2)),
+                Token::NUMLIT(imm5) => Ok(Instruction::And(dr, sr1, true, imm5)),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "REG or imm5".to_string(),
+                    found: token,
+                }),
+            }
+        },
+        Token::BR(flags) => {
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::Br(flags, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::Br(flags, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
                     found: token,
                 }),
             }
@@ -289,4 +321,38 @@ fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction,
             unimplemented!()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_add() {
+        let mut stream = ParseStream::new("ADD R0, R1, R2");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Add(0, 1, false, 2)
+        );
+        let mut stream = ParseStream::new("ADD R3, R4, #-7");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Add(3, 4, true, -7i16 as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_and() {
+        let mut stream = ParseStream::new("AND R0, R1, R2");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::And(0, 1, false, 2)
+        );
+        let mut stream = ParseStream::new("AND R3, R4, #-7");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::And(3, 4, true, -7i16 as u16)
+        );
+    }
+    
 }

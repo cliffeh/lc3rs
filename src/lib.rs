@@ -39,6 +39,8 @@ pub enum Trap {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
     Add(u16, u16, bool, u16),
+    And(u16, u16, bool, u16),
+    Br(u16, Option<u16>, Option<String>),
 }
 
 pub struct Program {
