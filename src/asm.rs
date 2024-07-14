@@ -1,4 +1,4 @@
-use crate::{Instruction, Program};
+use crate::{Instruction, Program, Reg};
 use lalrpop_util::lalrpop_mod;
 use logos::{Lexer, Logos};
 use std::{
@@ -110,23 +110,24 @@ pub enum Token {
 
     // registers
     /// ```
+    /// use lc3::Reg;
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
-    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::REG(0))));
-    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::REG(1))));
-    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::REG(2))));
-    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::REG(3))));
-    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::REG(4))));
-    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::REG(5))));
-    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::REG(6))));
-    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::REG(7))));
+    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::REG(Reg::R0))));
+    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::REG(Reg::R1))));
+    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::REG(Reg::R2))));
+    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::REG(Reg::R3))));
+    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::REG(Reg::R4))));
+    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::REG(Reg::R5))));
+    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::REG(Reg::R6))));
+    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::REG(Reg::R7))));
     /// ```
     #[regex("R[0-7]", callback = |lex| {
-        (lex.slice().as_bytes()[1] - b'0') as u16
+        Reg::from(lex.slice().as_bytes()[1] - b'0')
     },
     ignore(ascii_case))]
-    REG(u16),
+    REG(Reg),
 
     // assembler directives
     #[token(".ORIG", ignore(ascii_case))]
@@ -215,7 +216,7 @@ impl<'source> ParseStream<'source> {
         }
     }
 
-    pub fn expect_reg(&mut self) -> Result<u16, ParseError> {
+    pub fn expect_reg(&mut self) -> Result<Reg, ParseError> {
         let token = self.expect_next_token()?;
 
         if let Token::REG(value) = token {
@@ -271,10 +272,7 @@ pub fn parse<'source>(source: &'source impl ToString) -> Result<Program, ParseEr
     Ok(prog)
 }
 
-fn parse_instruction(
-    la: Token,
-    stream: &mut ParseStream,
-) -> Result<Instruction, ParseError> {
+fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction, ParseError> {
     match la {
         Token::ADD => {
             let dr = stream.expect_reg()?;
@@ -283,14 +281,14 @@ fn parse_instruction(
             stream.expect_comma()?;
             let token = stream.expect_next_token()?;
             match token {
-                Token::REG(sr2) => Ok(Instruction::Add(dr, sr1, false, sr2)),
-                Token::NUMLIT(imm5) => Ok(Instruction::Add(dr, sr1, true, imm5)),
+                Token::REG(sr2) => Ok(Instruction::Add(dr, sr1, Some(sr2), None)),
+                Token::NUMLIT(imm5) => Ok(Instruction::Add(dr, sr1, None, Some(imm5))),
                 _ => Err(ParseError::UnexpectedToken {
                     expected: "REG or imm5".to_string(),
                     found: token,
                 }),
             }
-        },
+        }
         Token::AND => {
             let dr = stream.expect_reg()?;
             stream.expect_comma()?;
@@ -298,14 +296,14 @@ fn parse_instruction(
             stream.expect_comma()?;
             let token = stream.expect_next_token()?;
             match token {
-                Token::REG(sr2) => Ok(Instruction::And(dr, sr1, false, sr2)),
-                Token::NUMLIT(imm5) => Ok(Instruction::And(dr, sr1, true, imm5)),
+                Token::REG(sr2) => Ok(Instruction::And(dr, sr1, Some(sr2), None)),
+                Token::NUMLIT(imm5) => Ok(Instruction::And(dr, sr1, None, Some(imm5))),
                 _ => Err(ParseError::UnexpectedToken {
                     expected: "REG or imm5".to_string(),
                     found: token,
                 }),
             }
-        },
+        }
         Token::BR(flags) => {
             let token = stream.expect_next_token()?;
             match token {
@@ -316,6 +314,10 @@ fn parse_instruction(
                     found: token,
                 }),
             }
+        }
+        Token::JMP => {
+            let base_r = stream.expect_reg()?;
+            Ok(Instruction::Jmp(base_r))
         }
         _ => {
             unimplemented!()
@@ -332,12 +334,12 @@ mod tests {
         let mut stream = ParseStream::new("ADD R0, R1, R2");
         assert_eq!(
             parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
-            Instruction::Add(0, 1, false, 2)
+            Instruction::Add(Reg::R0, Reg::R1, Some(Reg::R2), None)
         );
         let mut stream = ParseStream::new("ADD R3, R4, #-7");
         assert_eq!(
             parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
-            Instruction::Add(3, 4, true, -7i16 as u16)
+            Instruction::Add(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
         );
     }
 
@@ -346,13 +348,35 @@ mod tests {
         let mut stream = ParseStream::new("AND R0, R1, R2");
         assert_eq!(
             parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
-            Instruction::And(0, 1, false, 2)
+            Instruction::And(Reg::R0, Reg::R1, Some(Reg::R2), None)
         );
         let mut stream = ParseStream::new("AND R3, R4, #-7");
         assert_eq!(
             parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
-            Instruction::And(3, 4, true, -7i16 as u16)
+            Instruction::And(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
         );
     }
-    
+
+    #[test]
+    fn test_parse_br() {
+        let mut stream = ParseStream::new("BR x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Br(0b111, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("BR LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Br(0b111, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_jmp() {
+        let mut stream = ParseStream::new("JMP R6");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Jmp(Reg::R6)
+        );
+    }
 }

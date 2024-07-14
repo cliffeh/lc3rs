@@ -37,10 +37,23 @@ pub enum Trap {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum Reg {
+    R0 = 0,
+    R1,
+    R2,
+    R3,
+    R4,
+    R5,
+    R6,
+    R7,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
-    Add(u16, u16, bool, u16),
-    And(u16, u16, bool, u16),
+    Add(Reg, Reg, Option<Reg>, Option<u16>),
+    And(Reg, Reg, Option<Reg>, Option<u16>),
     Br(u16, Option<u16>, Option<String>),
+    Jmp(Reg),
 }
 
 pub struct Program {
@@ -293,6 +306,22 @@ impl From<u16> for Op {
             0xD => Op::RES,
             0xE => Op::LEA,
             0xF => Op::TRAP,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<u8> for Reg {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Reg::R0,
+            1 => Reg::R1,
+            2 => Reg::R2,
+            3 => Reg::R3,
+            4 => Reg::R4,
+            5 => Reg::R5,
+            6 => Reg::R6,
+            7 => Reg::R7,
             _ => unreachable!(),
         }
     }
