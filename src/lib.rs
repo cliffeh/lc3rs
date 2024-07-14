@@ -50,10 +50,27 @@ pub enum Reg {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
+    // ops
     Add(Reg, Reg, Option<Reg>, Option<u16>),
     And(Reg, Reg, Option<Reg>, Option<u16>),
     Br(u16, Option<u16>, Option<String>),
     Jmp(Reg),
+    Jsr(Option<u16>, Option<String>),
+    Jsrr(Reg),
+    Ld(Reg, Option<u16>, Option<String>),
+    Ldi(Reg, Option<u16>, Option<String>),
+    Ldr(Reg, Reg, u16),
+    Lea(Reg, Option<u16>, Option<String>),
+    Not(Reg, Reg),
+    Rti,
+    St(Reg, Option<u16>, Option<String>),
+    Sti(Reg, Option<u16>, Option<String>),
+    Str(Reg, Reg, u16),
+    Trap(u16),
+
+    // assembler directives
+    Fill(Option<u16>, Option<String>),
+    Stringz(Vec<u8>),
 }
 
 pub struct Program {

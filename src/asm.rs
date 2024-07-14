@@ -1,4 +1,4 @@
-use crate::{Instruction, Program, Reg};
+use crate::{Instruction, Program, Reg, Trap};
 use lalrpop_util::lalrpop_mod;
 use logos::{Lexer, Logos};
 use std::{
@@ -87,8 +87,6 @@ pub enum Token {
     JMP, /* jump */
     #[token("RET", ignore(ascii_case))]
     RET, /* equivalent to JMP R7 */
-    #[token("RES", ignore(ascii_case))]
-    RES, /* reserved (unused) */
     #[token("LEA", ignore(ascii_case))]
     LEA, /* load effective address */
     #[token("TRAP", ignore(ascii_case))]
@@ -146,8 +144,8 @@ pub enum Token {
         Ok::<u16, ParseError>(value as u16)
     })]
     NUMLIT(u16),
-    #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].to_string())]
-    STRLIT(String),
+    #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].as_bytes().to_vec())]
+    STRLIT(Vec<u8>),
 
     // labels
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
@@ -216,6 +214,19 @@ impl<'source> ParseStream<'source> {
         }
     }
 
+    pub fn expect_strlit(&mut self) -> Result<Vec<u8>, ParseError> {
+        let token = self.expect_next_token()?;
+
+        if let Token::STRLIT(value) = token {
+            Ok(value)
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: "STRLIT".to_string(),
+                found: token,
+            })
+        }
+    }
+
     pub fn expect_reg(&mut self) -> Result<Reg, ParseError> {
         let token = self.expect_next_token()?;
 
@@ -274,6 +285,7 @@ pub fn parse<'source>(source: &'source impl ToString) -> Result<Program, ParseEr
 
 fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction, ParseError> {
     match la {
+        // ops
         Token::ADD => {
             let dr = stream.expect_reg()?;
             stream.expect_comma()?;
@@ -315,13 +327,137 @@ fn parse_instruction(la: Token, stream: &mut ParseStream) -> Result<Instruction,
                 }),
             }
         }
-        Token::JMP => {
+        Token::JMP => Ok(Instruction::Jmp(stream.expect_reg()?)),
+        Token::JSR => {
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset11) => Ok(Instruction::Jsr(Some(pcoffset11), None)),
+                Token::LABEL(label) => Ok(Instruction::Jsr(None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset11".to_string(),
+                    found: token,
+                }),
+            }
+        }
+        Token::JSRR => Ok(Instruction::Jsrr(stream.expect_reg()?)),
+        Token::LD => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::Ld(dr, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::Ld(dr, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
+                    found: token,
+                }),
+            }
+        }
+        Token::LDI => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::Ldi(dr, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::Ldi(dr, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
+                    found: token,
+                }),
+            }
+        }
+        Token::LDR => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
             let base_r = stream.expect_reg()?;
-            Ok(Instruction::Jmp(base_r))
+            stream.expect_comma()?;
+            let offset6 = stream.expect_numlit()?;
+            Ok(Instruction::Ldr(dr, base_r, offset6))
         }
-        _ => {
-            unimplemented!()
+        Token::LEA => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::Lea(dr, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::Lea(dr, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
+                    found: token,
+                }),
+            }
         }
+        Token::NOT => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let sr = stream.expect_reg()?;
+            Ok(Instruction::Not(dr, sr))
+        }
+        Token::RET => Ok(Instruction::Jmp(Reg::R7)),
+        Token::RTI => Ok(Instruction::Rti),
+        Token::ST => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::St(dr, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::St(dr, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
+                    found: token,
+                }),
+            }
+        }
+        Token::STI => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::Sti(dr, Some(pcoffset9), None)),
+                Token::LABEL(label) => Ok(Instruction::Sti(dr, None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or pcoffset9".to_string(),
+                    found: token,
+                }),
+            }
+        }
+        Token::STR => {
+            let dr = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let base_r = stream.expect_reg()?;
+            stream.expect_comma()?;
+            let offset6 = stream.expect_numlit()?;
+            Ok(Instruction::Str(dr, base_r, offset6))
+        }
+        Token::TRAP => Ok(Instruction::Trap(stream.expect_numlit()?)),
+
+        // traps
+        Token::GETC => Ok(Instruction::Trap(Trap::GETC as u16)),
+        Token::OUT => Ok(Instruction::Trap(Trap::OUT as u16)),
+        Token::PUTS => Ok(Instruction::Trap(Trap::PUTS as u16)),
+        Token::IN => Ok(Instruction::Trap(Trap::IN as u16)),
+        Token::PUTSP => Ok(Instruction::Trap(Trap::PUTSP as u16)),
+        Token::HALT => Ok(Instruction::Trap(Trap::HALT as u16)),
+
+        // assembler directives
+        Token::FILL => {
+            let token = stream.expect_next_token()?;
+            match token {
+                Token::NUMLIT(value) => Ok(Instruction::Fill(Some(value), None)),
+                Token::LABEL(label) => Ok(Instruction::Fill(None, Some(label))),
+                _ => Err(ParseError::UnexpectedToken {
+                    expected: "LABEL or NUMLIT".to_string(),
+                    found: token,
+                }),
+            }
+        }
+
+        Token::STRINGZ => Ok(Instruction::Stringz(stream.expect_strlit()?)),
+
+        _ => Err(ParseError::UnexpectedToken {
+            expected: "operation or assembler directive".to_string(),
+            found: la,
+        }),
     }
 }
 
@@ -377,6 +513,230 @@ mod tests {
         assert_eq!(
             parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
             Instruction::Jmp(Reg::R6)
+        );
+    }
+
+    #[test]
+    fn test_parse_jsr() {
+        let mut stream = ParseStream::new("JSR x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Jsr(Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("JSR LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Jsr(None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_jsrr() {
+        let mut stream = ParseStream::new("JSRR R6");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Jsrr(Reg::R6)
+        );
+    }
+
+    #[test]
+    fn test_parse_ld() {
+        let mut stream = ParseStream::new("LD R1, x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Ld(Reg::R1, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("LD R1, LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Ld(Reg::R1, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_ldi() {
+        let mut stream = ParseStream::new("LDI R1, x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Ldi(Reg::R1, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("LDI R1, LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Ldi(Reg::R1, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_ldr() {
+        let mut stream = ParseStream::new("LDR R0, R1, #20");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Ldr(Reg::R0, Reg::R1, 20)
+        );
+    }
+
+    #[test]
+    fn test_parse_lea() {
+        let mut stream = ParseStream::new("LEA R1, x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Lea(Reg::R1, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("LEA R1, LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Lea(Reg::R1, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_not() {
+        let mut stream = ParseStream::new("NOT R0, R1");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Not(Reg::R0, Reg::R1)
+        );
+    }
+
+    #[test]
+    fn test_parse_ret() {
+        let mut stream = ParseStream::new("RET");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Jmp(Reg::R7)
+        );
+    }
+
+    #[test]
+    fn test_parse_rti() {
+        let mut stream = ParseStream::new("RTI");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Rti
+        );
+    }
+
+    #[test]
+    fn test_parse_st() {
+        let mut stream = ParseStream::new("ST R1, x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::St(Reg::R1, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("ST R1, LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::St(Reg::R1, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_sti() {
+        let mut stream = ParseStream::new("STI R1, x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Sti(Reg::R1, Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new("STI R1, LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Sti(Reg::R1, None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_str() {
+        let mut stream = ParseStream::new("STR R0, R1, #20");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Str(Reg::R0, Reg::R1, 20)
+        );
+    }
+
+    #[test]
+    fn test_parse_trap() {
+        let mut stream = ParseStream::new("TRAP x20");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(0x20)
+        );
+    }
+
+    #[test]
+    fn test_parse_getc() {
+        let mut stream = ParseStream::new("GETC");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::GETC as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_out() {
+        let mut stream = ParseStream::new("OUT");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::OUT as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_puts() {
+        let mut stream = ParseStream::new("PUTS");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::PUTS as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_in() {
+        let mut stream = ParseStream::new("IN");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::IN as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_putsp() {
+        let mut stream = ParseStream::new("PUTSP");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::PUTSP as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_halt() {
+        let mut stream = ParseStream::new("HALT");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Trap(Trap::HALT as u16)
+        );
+    }
+
+    #[test]
+    fn test_parse_fill() {
+        let mut stream = ParseStream::new(".FILL x1234");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Fill(Some(0x1234), None)
+        );
+        let mut stream = ParseStream::new(".FILL LABEL");
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Fill(None, Some("LABEL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_stringz() {
+        let mut stream = ParseStream::new(r#".STRINGZ "hello, world!\n""#);
+        assert_eq!(
+            parse_instruction(stream.expect_next_token().unwrap(), &mut stream).unwrap(),
+            Instruction::Stringz(r"hello, world!\n".as_bytes().to_vec())
         );
     }
 }
