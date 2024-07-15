@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 pub mod asm;
-pub mod vm;
-pub use asm::assemble;
+// pub mod vm;
 use std::fmt;
-use vm::{COND_NEG, COND_POS, COND_ZRO};
+// use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
@@ -190,7 +189,7 @@ impl Program {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.orig as u16))?;
         for instruction in &self.instructions {
-            n += w.write(&u16::to_be_bytes(u16::from(instruction)))?;
+            n += w.write(&u16::to_be_bytes(0 /*u16::from(instruction)*/))?; // TODO!
         }
         Ok(n)
     }
@@ -281,54 +280,106 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::AddReg(dr, sr1, sr2) => {
-                writeln!(f, "ADD {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
+                write!(f, "ADD {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
             }
             Instruction::AddImm5(dr, sr1, imm5) => {
-                writeln!(f, "ADD {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
+                write!(f, "ADD {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
             }
             Instruction::AndReg(dr, sr1, sr2) => {
-                writeln!(f, "AND {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
+                write!(f, "AND {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
             }
             Instruction::AndImm5(dr, sr1, imm5) => {
-                writeln!(f, "AND {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
+                write!(f, "AND {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
             }
             Instruction::Br(flags, pcoffset9, optlabel) => {
                 write!(f, "BR")?;
-                if flags & COND_NEG != 0 {
+                if flags & 0x4 /*COND_NEG*/ != 0 { // TODO
                     write!(f, "n")?;
                 }
-                if flags & COND_ZRO != 0 {
+                if flags & 0x2 /* COND_ZRO */ != 0 { // TODO 
                     write!(f, "z")?;
                 }
-                if flags & COND_POS != 0 {
+                if flags & 0x1 /* COND_POS */ != 0 { // TODO
                     write!(f, "p")?;
                 }
                 if let Some(label) = optlabel {
-                    writeln!(f, " {}", label)?;
+                    write!(f, " {}", label)?;
                 } else {
-                    writeln!(f, " x{:04x}", pcoffset9)?;
+                    write!(f, " x{:04x}", pcoffset9)?;
                 }
             }
             Instruction::Jmp(base_r) => {
                 if *base_r == Reg::R7 {
-                    writeln!(f, "RET")?;
+                    write!(f, "RET")?;
                 } else {
-                    writeln!(f, "JMP {:#?}", base_r)?;
+                    write!(f, "JMP {:#?}", base_r)?;
                 }
             }
-            Instruction::Jsr(_, _) => todo!(),
-            Instruction::Jsrr(_) => todo!(),
-            Instruction::Ld(_, _, _) => todo!(),
-            Instruction::Ldi(_, _, _) => todo!(),
-            Instruction::Ldr(_, _, _) => todo!(),
-            Instruction::Lea(_, _, _) => todo!(),
-            Instruction::Not(_, _) => todo!(),
-            Instruction::Rti => todo!(),
-            Instruction::St(_, _, _) => todo!(),
-            Instruction::Sti(_, _, _) => todo!(),
-            Instruction::Str(_, _, _) => todo!(),
+            Instruction::Jsr(pcoffset11, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "JSR {}", label)?;
+                } else {
+                    write!(f, "JSR x{:04x}", pcoffset11)?;
+                }
+            }
+            Instruction::Jsrr(base_r) => {
+                write!(f, "JSRR {:#?}", base_r)?;
+            }
+            Instruction::Ld(dr, pcoffset9, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "LD {:#?}, {}", dr, label)?;
+                } else {
+                    write!(f, "LD {:#?}, x{:04x}", dr, pcoffset9)?;
+                }
+            }
+            Instruction::Ldi(dr, pcoffset9, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "LDI {:#?}, {}", dr, label)?;
+                } else {
+                    write!(f, "LDI {:#?}, x{:04x}", dr, pcoffset9)?;
+                }
+            }
+            Instruction::Ldr(dr, base_r, offset6) => {
+                write!(f, "LDR {:#?}, {:#?}, #{}", dr, base_r, *offset6 as i16)?;
+            }
+            Instruction::Lea(dr, pcoffset9, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "LEA {:#?}, {}", dr, label)?;
+                } else {
+                    write!(f, "LEA {:#?}, x{:04x}", dr, pcoffset9)?;
+                }
+            }
+            Instruction::Not(dr, sr) => {
+                write!(f, "NOT {:#?}, {:#?}", dr, sr)?;
+            }
+            Instruction::Rti => {
+                write!(f, "RTI")?;
+            }
+            Instruction::St(sr, pcoffset9, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "ST {:#?}, {}", sr, label)?;
+                } else {
+                    write!(f, "ST {:#?}, x{:04x}", sr, pcoffset9)?;
+                }
+            }
+            Instruction::Sti(sr, pcoffset9, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, "STI {:#?}, {}", sr, label)?;
+                } else {
+                    write!(f, "STI {:#?}, x{:04x}", sr, pcoffset9)?;
+                }
+            }
+            Instruction::Str(sr, base_r, offset6) => {
+                write!(f, "STR {:#?}, {:#?}, #{}", sr, base_r, *offset6 as i16)?;
+            }
             Instruction::Trap(_) => todo!(),
-            Instruction::Fill(_, _) => todo!(),
+            Instruction::Fill(value, optlabel) => {
+                if let Some(label) = optlabel {
+                    write!(f, ".FILL {}", label)?;
+                } else {
+                    write!(f, ".FILL x{:04x}", value)?;
+                }
+            }
             Instruction::Stringz(_) => todo!(),
         }
         Ok(())
@@ -339,220 +390,16 @@ impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, ".ORIG x{:04X}", self.orig)?;
 
-        for iaddr in 0..self.mem.len() {
+        eprintln!("instruction len: {}", self.instructions.len());
+
+        for iaddr in 0..self.instructions.len() {
             // write!(f, "x{:04X} ", iaddr)?;
 
             if let Some(symbol) = self.lookup_symbol_by_address(iaddr as u16 + self.orig) {
                 write!(f, "{} ", symbol)?;
             }
 
-            let inst = self.mem[iaddr];
-
-            if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                if let Some(saddr) = self.syms.get(symbol) {
-                    // do you believe in coincidence?
-                    if *saddr == inst {
-                        writeln!(f, ".FILL {}", symbol)?;
-                        continue;
-                    }
-                }
-            }
-
-            match Op::from(inst >> 12) {
-                Op::ADD => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr1 = (inst >> 6) & 0x7;
-                    let imm = (inst >> 5) & 0x1;
-
-                    if imm == 0 {
-                        // 3 registers
-                        let sr2 = inst & 0x7;
-                        if inst & (0x7 << 2) == 0 {
-                            writeln!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
-                        } else {
-                            writeln!(f, ".FILL x{:04X}", inst)?;
-                        }
-                    } else {
-                        let imm5 = sign_extend(inst & 0x1f, 5) as i16;
-                        writeln!(f, "ADD R{}, R{}, #{}", dr, sr1, imm5)?;
-                    }
-                }
-                Op::AND => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr1 = (inst >> 6) & 0x7;
-                    let imm = (inst >> 5) & 0x1;
-
-                    if imm == 0 {
-                        // 3 registers
-                        let sr2 = inst & 0x7;
-                        if inst & (0x7 << 2) == 0 {
-                            writeln!(f, "AND R{}, R{}, R{}", dr, sr1, sr2)?;
-                        } else {
-                            writeln!(f, ".FILL x{:04X}", inst)?;
-                        }
-                    } else {
-                        let imm5 = sign_extend(inst & 0x1f, 5) as i16;
-                        writeln!(f, "AND R{}, R{}, #{}", dr, sr1, imm5)?;
-                    }
-                }
-                Op::BR => {
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let flags = (inst >> 9) & 0x7;
-
-                    write!(f, "BR")?;
-
-                    if flags & COND_NEG == COND_NEG {
-                        write!(f, "n")?;
-                    }
-                    if flags & COND_ZRO == COND_ZRO {
-                        write!(f, "z")?;
-                    }
-                    if flags & COND_POS == COND_POS {
-                        write!(f, "p")?;
-                    }
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::JMP => {
-                    if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
-                        let base_r = (inst >> 6) & 0x7;
-                        if base_r == 7 {
-                            writeln!(f, "RET")?;
-                        } else {
-                            writeln!(f, "JMP R{}", base_r)?;
-                        }
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::JSR => {
-                    let flag = (inst >> 11) & 0x1;
-                    if flag == 0 {
-                        // JSRR
-                        if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
-                            let base_r = (inst >> 6) & 0x7;
-                            writeln!(f, "JSRR R{}", base_r)?;
-                        } else {
-                            writeln!(f, ".FILL {:04X}", inst)?;
-                        }
-                    } else {
-                        let pcoffset11 = inst & 0x7ff;
-
-                        write!(f, "JSR")?;
-
-                        if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                            writeln!(f, " {}", symbol)?;
-                        } else {
-                            writeln!(f, " x{:04X}", pcoffset11)?;
-                        }
-                    }
-                }
-                Op::LD => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LD R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::LDI => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LDI R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::LDR => {
-                    let dr = (inst >> 9) & 0x7;
-                    let base_r = (inst >> 6) & 0x7;
-                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
-                    writeln!(f, "LDR R{}, R{}, #{}", dr, base_r, offset6)?;
-                }
-                Op::LEA => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LEA R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::NOT => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr = (inst >> 6) & 0x7;
-
-                    writeln!(f, "NOT R{}, R{}", dr, sr)?;
-                }
-                Op::ST => {
-                    let sr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "ST R{},", sr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::STI => {
-                    let sr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "STI R{},", sr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::STR => {
-                    let sr = (inst >> 9) & 0x7;
-                    let base_r = (inst >> 6) & 0x7;
-                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
-                    writeln!(f, "STR R{}, R{}, #{}", sr, base_r, offset6)?;
-                }
-                Op::TRAP => {
-                    if inst & (0xf << 8) == 0 {
-                        if let Ok(trap) = Trap::try_from(inst & 0x00ff) {
-                            writeln!(f, "{}", trap)?;
-                        } else {
-                            let trapvect8 = inst & 0x00ff;
-                            writeln!(f, "TRAP x{:04X}", trapvect8)?;
-                        }
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::RTI => {
-                    if inst == 1 << 15 {
-                        writeln!(f, "RTI")?;
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::RES => {
-                    // reserved, so we'll just always assume this is a .FILL
-                    writeln!(f, ".FILL x{:04X}", inst)?;
-                }
-            }
+            writeln!(f, "{}", self.instructions[iaddr])?;
         }
 
         writeln!(f, ".END")?;

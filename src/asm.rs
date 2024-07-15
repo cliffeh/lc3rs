@@ -1,26 +1,7 @@
 use crate::{Instruction, Program, Reg, Trap};
-use lalrpop_util::lalrpop_mod;
 use logos::{Lexer, Logos};
-use std::{
-    io::{Error, Read},
-    num::ParseIntError,
-};
+use std::num::ParseIntError;
 use thiserror::Error;
-
-lalrpop_mod!(#[allow(overflowing_literals)] pub parser);
-
-pub fn assemble(r: &mut dyn Read) -> Result<Program, Error> {
-    let mut prog = Program::default();
-    let parser = parser::ProgramParser::new();
-    let mut buf = String::new();
-
-    r.read_to_string(&mut buf)?;
-    parser.parse(&mut prog, buf.as_str()).unwrap(); // TODO unsafe unwrap
-
-    prog.resolve_symbols();
-
-    Ok(prog)
-}
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 #[logos(error = ParseError)]
@@ -167,13 +148,13 @@ impl<'source> Parser<'source> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Program, ParseError> {
+    pub fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut prog = Program::default();
 
         self.expect_orig()?;
         prog.orig = self.expect_numlit()?;
 
-        let mut iaddr = 0u16;
+        let mut iaddr = 0usize;
         loop {
             let token = self.expect_next_token()?;
             match token {
@@ -182,10 +163,10 @@ impl<'source> Parser<'source> {
                     break;
                 }
                 Token::LABEL(label) => {
-                    prog.syms.insert(label, iaddr);
+                    prog.syms.insert(label, iaddr as u16);
                 }
                 _ => {
-                    self.parse_instruction(token)?;
+                    prog.instructions.push(self.parse_instruction(token)?);
                 }
             }
             iaddr += 1;
