@@ -51,25 +51,27 @@ pub enum Reg {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
     // ops
-    Add(Reg, Reg, Option<Reg>, Option<u16>),
-    And(Reg, Reg, Option<Reg>, Option<u16>),
-    Br(u16, Option<u16>, Option<String>),
+    AddReg(Reg, Reg, Reg),
+    AddImm5(Reg, Reg, u16),
+    AndReg(Reg, Reg, Reg),
+    AndImm5(Reg, Reg, u16),
+    Br(u16, u16, Option<String>),
     Jmp(Reg),
-    Jsr(Option<u16>, Option<String>),
+    Jsr(u16, Option<String>),
     Jsrr(Reg),
-    Ld(Reg, Option<u16>, Option<String>),
-    Ldi(Reg, Option<u16>, Option<String>),
+    Ld(Reg, u16, Option<String>),
+    Ldi(Reg, u16, Option<String>),
     Ldr(Reg, Reg, u16),
-    Lea(Reg, Option<u16>, Option<String>),
+    Lea(Reg, u16, Option<String>),
     Not(Reg, Reg),
     Rti,
-    St(Reg, Option<u16>, Option<String>),
-    Sti(Reg, Option<u16>, Option<String>),
+    St(Reg, u16, Option<String>),
+    Sti(Reg, u16, Option<String>),
     Str(Reg, Reg, u16),
     Trap(u16),
 
     // assembler directives
-    Fill(Option<u16>, Option<String>),
+    Fill(u16, Option<String>),
     Stringz(Vec<u8>),
 }
 
@@ -77,30 +79,23 @@ pub struct Program {
     /// Origin address of the program
     pub orig: u16,
     /// Instructions of the program
-    pub mem: Vec<u16>,
+    pub instructions: Vec<Instruction>,
     /// Symbol table
     pub syms: HashMap<String, u16>,
-    /// Used for assembly, this maps relative instruction addresses onto the
-    /// symbols they reference and the mask to use when resolving the address
-    /// of the symbol.
-    pub refs: HashMap<u16, (String, Option<u16>)>,
 }
 
 impl Program {
     /// Creates a new program.
-    pub fn new(orig: u16, mem: Vec<u16>) -> Program {
+    pub fn new(orig: u16, instructions: Vec<Instruction>) -> Program {
         Program {
             orig,
-            mem,
+            instructions,
             syms: HashMap::new(),
-            refs: HashMap::new(),
         }
     }
 
     /// Dumps the symbol table for this program. The format is one symbol per line,
-    /// relative to `self.orig` sorted in address order. The symbol table will also
-    /// optionally include a comma-delimited list of the instructions that reference
-    /// each symbol.
+    /// relative to `self.orig` sorted in address order.
     ///
     /// # Example
     ///
@@ -126,18 +121,7 @@ impl Program {
         let mut symvec: Vec<(&String, &u16)> = self.syms.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, saddr) in symvec {
-            n += w.write(format!("x{:04x} {}", saddr + self.orig, sym).as_bytes())?;
-
-            let refs: Vec<String> = self
-                .lookup_references_by_symbol(sym)
-                .into_iter()
-                .map(|iaddr| format!("x{:04X}", iaddr))
-                .collect();
-            if refs.len() > 0 {
-                n += w.write(&[b' '])?;
-                n += w.write(refs.join(",").as_bytes())?;
-            }
-            n += w.write(&[b'\n'])?;
+            n += w.write(format!("x{:04x} {}\n", saddr + self.orig, sym).as_bytes())?;
         }
         Ok(n)
     }
@@ -157,10 +141,6 @@ impl Program {
     ///
     /// assert_eq!(prog.syms.get("foo").unwrap(), &0x3020u16);
     /// assert_eq!(prog.syms.get("bar").unwrap(), &0x4200u16);
-    /// // also check that it loaded refs correctly
-    /// assert_eq!(prog.refs.get(&0x1u16).unwrap().0, "foo".to_string());
-    /// assert_eq!(prog.refs.get(&0x2u16).unwrap().0, "foo".to_string());
-    ///
     /// ```
     pub fn load_symbols(&mut self, r: &mut dyn Read) -> Result<(), Error> {
         for res in BufReader::new(r).lines().into_iter() {
@@ -172,38 +152,9 @@ impl Program {
             let symbol = String::from(split.next().unwrap());
 
             self.syms.insert(symbol.clone(), addr);
-
-            if let Some(rest) = split.next() {
-                let refstr = rest.split(",");
-                for s in refstr {
-                    let iaddr = u16::from_str_radix(&s[1..], 16).unwrap();
-                    self.refs.insert(iaddr, (symbol.clone(), None));
-                }
-            }
         }
 
         Ok(())
-    }
-
-    /// Walks through all symbol references in `self.refs` and updates their respective
-    /// instructions using the actual address of the symbol, masked appropriately for
-    /// the instruction. Panics if there is an undefined symbol.
-    pub fn resolve_symbols(&mut self) {
-        // instruction address
-        for (iaddr, (symbol, maskopt)) in self.refs.iter() {
-            // symbol address
-            if let Some(saddr) = self.syms.get(symbol) {
-                if let Some(mask) = maskopt {
-                    // relative to the incremented PC
-                    self.mem[*iaddr as usize] |=
-                        ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
-                } else {
-                    self.mem[*iaddr as usize] = (self.orig + saddr) as u16; // .FILL
-                }
-            } else {
-                panic!("undefined symbol: {}", symbol);
-            }
-        }
     }
 
     /// Does a reverse lookup of a symbol, given its address.
@@ -234,60 +185,12 @@ impl Program {
         None
     }
 
-    /// Does a reverse lookup of all relative instruction addresses that reference `sym`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let _ = prog.refs.insert(0x1, ("foo".to_string(), None));
-    /// let _ = prog.refs.insert(0x2, ("foo".to_string(), None));
-    ///
-    /// let expected: Vec<u16> = vec![1u16, 2u16];
-    /// let mut actual = prog.lookup_references_by_symbol(&"foo".to_string());
-    /// actual.sort(); // not guaranteed to be in-order
-    ///
-    /// assert_eq!(actual, expected);
-    /// ```
-    pub fn lookup_references_by_symbol(&self, sym: &String) -> Vec<u16> {
-        let mut refs: Vec<u16> = vec![];
-        for (iaddr, (symbol, _mask)) in self.refs.iter() {
-            if *symbol == *sym {
-                refs.push(*iaddr);
-            }
-        }
-        refs
-    }
-
-    /// Reads an LC3 program from `r`.
-    pub fn read(r: &mut dyn Read) -> Result<Program, Error> {
-        let mut buf: [u8; 2] = [0, 0];
-        r.read_exact(&mut buf)?;
-        let orig = u16::from_be_bytes(buf);
-
-        let mut mem: Vec<u16> = vec![];
-
-        loop {
-            if r.read(&mut buf)? == 0 {
-                // TODO error on size other than 0 or 2
-                break;
-            }
-            mem.push(u16::from_be_bytes(buf));
-        }
-
-        Ok(Program::new(orig, mem))
-    }
-
     /// Writes the program out to `w`.
     pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.orig as u16))?;
-        for inst in &self.mem {
-            n += w.write(&u16::to_be_bytes(*inst))?;
+        for instruction in &self.instructions {
+            n += w.write(&u16::to_be_bytes(u16::from(instruction)))?;
         }
         Ok(n)
     }
@@ -297,9 +200,8 @@ impl Default for Program {
     fn default() -> Self {
         Program {
             orig: 0x3000,
-            mem: vec![],
+            instructions: vec![],
             syms: HashMap::new(),
-            refs: HashMap::new(),
         }
     }
 }
@@ -344,6 +246,21 @@ impl From<u8> for Reg {
     }
 }
 
+impl From<Reg> for u16 {
+    fn from(value: Reg) -> Self {
+        match value {
+            Reg::R0 => 0,
+            Reg::R1 => 1,
+            Reg::R2 => 2,
+            Reg::R3 => 3,
+            Reg::R4 => 4,
+            Reg::R5 => 5,
+            Reg::R6 => 6,
+            Reg::R7 => 7,
+        }
+    }
+}
+
 impl TryFrom<u16> for Trap {
     type Error = ();
 
@@ -357,6 +274,64 @@ impl TryFrom<u16> for Trap {
             0x25 => Ok(Trap::HALT),
             _ => Err(()),
         }
+    }
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::AddReg(dr, sr1, sr2) => {
+                writeln!(f, "ADD {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
+            }
+            Instruction::AddImm5(dr, sr1, imm5) => {
+                writeln!(f, "ADD {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
+            }
+            Instruction::AndReg(dr, sr1, sr2) => {
+                writeln!(f, "AND {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
+            }
+            Instruction::AndImm5(dr, sr1, imm5) => {
+                writeln!(f, "AND {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
+            }
+            Instruction::Br(flags, pcoffset9, optlabel) => {
+                write!(f, "BR")?;
+                if flags & COND_NEG != 0 {
+                    write!(f, "n")?;
+                }
+                if flags & COND_ZRO != 0 {
+                    write!(f, "z")?;
+                }
+                if flags & COND_POS != 0 {
+                    write!(f, "p")?;
+                }
+                if let Some(label) = optlabel {
+                    writeln!(f, " {}", label)?;
+                } else {
+                    writeln!(f, " x{:04x}", pcoffset9)?;
+                }
+            }
+            Instruction::Jmp(base_r) => {
+                if *base_r == Reg::R7 {
+                    writeln!(f, "RET")?;
+                } else {
+                    writeln!(f, "JMP {:#?}", base_r)?;
+                }
+            }
+            Instruction::Jsr(_, _) => todo!(),
+            Instruction::Jsrr(_) => todo!(),
+            Instruction::Ld(_, _, _) => todo!(),
+            Instruction::Ldi(_, _, _) => todo!(),
+            Instruction::Ldr(_, _, _) => todo!(),
+            Instruction::Lea(_, _, _) => todo!(),
+            Instruction::Not(_, _) => todo!(),
+            Instruction::Rti => todo!(),
+            Instruction::St(_, _, _) => todo!(),
+            Instruction::Sti(_, _, _) => todo!(),
+            Instruction::Str(_, _, _) => todo!(),
+            Instruction::Trap(_) => todo!(),
+            Instruction::Fill(_, _) => todo!(),
+            Instruction::Stringz(_) => todo!(),
+        }
+        Ok(())
     }
 }
 

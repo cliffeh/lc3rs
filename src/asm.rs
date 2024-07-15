@@ -204,8 +204,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(sr2) => Ok(Instruction::Add(dr, sr1, Some(sr2), None)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::Add(dr, sr1, None, Some(imm5))),
+                    Token::REG(sr2) => Ok(Instruction::AddReg(dr, sr1, sr2)),
+                    Token::NUMLIT(imm5) => Ok(Instruction::AddImm5(dr, sr1, imm5)),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "REG or imm5".to_string(),
                         found: token,
@@ -219,8 +219,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(sr2) => Ok(Instruction::And(dr, sr1, Some(sr2), None)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::And(dr, sr1, None, Some(imm5))),
+                    Token::REG(sr2) => Ok(Instruction::AndReg(dr, sr1, sr2)),
+                    Token::NUMLIT(imm5) => Ok(Instruction::AndImm5(dr, sr1, imm5)),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "REG or imm5".to_string(),
                         found: token,
@@ -230,8 +230,8 @@ impl<'source> Parser<'source> {
             Token::BR(flags) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Br(flags, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Br(flags, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Br(flags, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::Br(flags, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -242,8 +242,8 @@ impl<'source> Parser<'source> {
             Token::JSR => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset11) => Ok(Instruction::Jsr(Some(pcoffset11), None)),
-                    Token::LABEL(label) => Ok(Instruction::Jsr(None, Some(label))),
+                    Token::NUMLIT(pcoffset11) => Ok(Instruction::Jsr(pcoffset11, None)),
+                    Token::LABEL(label) => Ok(Instruction::Jsr(0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset11".to_string(),
                         found: token,
@@ -256,8 +256,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ld(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Ld(dr, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ld(dr, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::Ld(dr, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -269,8 +269,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ldi(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Ldi(dr, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ldi(dr, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::Ldi(dr, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -290,8 +290,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Lea(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Lea(dr, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Lea(dr, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::Lea(dr, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -311,8 +311,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::St(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::St(dr, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::St(dr, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::St(dr, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -324,8 +324,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Sti(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Sti(dr, None, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Sti(dr, pcoffset9, None)),
+                    Token::LABEL(label) => Ok(Instruction::Sti(dr, 0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -354,8 +354,8 @@ impl<'source> Parser<'source> {
             Token::FILL => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(value) => Ok(Instruction::Fill(Some(value), None)),
-                    Token::LABEL(label) => Ok(Instruction::Fill(None, Some(label))),
+                    Token::NUMLIT(value) => Ok(Instruction::Fill(value, None)),
+                    Token::LABEL(label) => Ok(Instruction::Fill(0, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or NUMLIT".to_string(),
                         found: token,
@@ -469,13 +469,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Add(Reg::R0, Reg::R1, Some(Reg::R2), None)
+            Instruction::AddReg(Reg::R0, Reg::R1, Reg::R2)
         );
         let mut parser = Parser::new("ADD R3, R4, #-7");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Add(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
+            Instruction::AddImm5(Reg::R3, Reg::R4, -7i16 as u16)
         );
     }
 
@@ -485,13 +485,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::And(Reg::R0, Reg::R1, Some(Reg::R2), None)
+            Instruction::AndReg(Reg::R0, Reg::R1, Reg::R2)
         );
         let mut parser = Parser::new("AND R3, R4, #-7");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::And(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
+            Instruction::AndImm5(Reg::R3, Reg::R4, -7i16 as u16)
         );
     }
 
@@ -501,13 +501,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Br(0b111, Some(0x1234), None)
+            Instruction::Br(0b111, 0x1234, None)
         );
         let mut parser = Parser::new("BR LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Br(0b111, None, Some("LABEL".to_string()))
+            Instruction::Br(0b111, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -527,13 +527,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Jsr(Some(0x1234), None)
+            Instruction::Jsr(0x1234, None)
         );
         let mut parser = Parser::new("JSR LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Jsr(None, Some("LABEL".to_string()))
+            Instruction::Jsr(0, Some("LABEL".to_string()))
         );
     }
 
@@ -553,13 +553,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Ld(Reg::R1, Some(0x1234), None)
+            Instruction::Ld(Reg::R1, 0x1234, None)
         );
         let mut parser = Parser::new("LD R1, LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Ld(Reg::R1, None, Some("LABEL".to_string()))
+            Instruction::Ld(Reg::R1, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -569,13 +569,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Ldi(Reg::R1, Some(0x1234), None)
+            Instruction::Ldi(Reg::R1, 0x1234, None)
         );
         let mut parser = Parser::new("LDI R1, LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Ldi(Reg::R1, None, Some("LABEL".to_string()))
+            Instruction::Ldi(Reg::R1, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -595,13 +595,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Lea(Reg::R1, Some(0x1234), None)
+            Instruction::Lea(Reg::R1, 0x1234, None)
         );
         let mut parser = Parser::new("LEA R1, LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Lea(Reg::R1, None, Some("LABEL".to_string()))
+            Instruction::Lea(Reg::R1, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -638,13 +638,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::St(Reg::R1, Some(0x1234), None)
+            Instruction::St(Reg::R1, 0x1234, None)
         );
         let mut parser = Parser::new("ST R1, LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::St(Reg::R1, None, Some("LABEL".to_string()))
+            Instruction::St(Reg::R1, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -654,13 +654,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Sti(Reg::R1, Some(0x1234), None)
+            Instruction::Sti(Reg::R1, 0x1234, None)
         );
         let mut parser = Parser::new("STI R1, LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Sti(Reg::R1, None, Some("LABEL".to_string()))
+            Instruction::Sti(Reg::R1, 0, Some("LABEL".to_string()))
         );
     }
 
@@ -750,13 +750,13 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Fill(Some(0x1234), None)
+            Instruction::Fill(0x1234, None)
         );
         let mut parser = Parser::new(".FILL LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Fill(None, Some("LABEL".to_string()))
+            Instruction::Fill(0, Some("LABEL".to_string()))
         );
     }
 
