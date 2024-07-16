@@ -8,23 +8,19 @@ use lc3::asm::Parser as LC3Parser;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// turn on debug logging
-    #[arg(short, long)]
-    debug: bool,
-
     /// disassemble object code
     #[arg(short = 'D', long, default_value_t = false)]
     dissasemble: bool,
 
-    /// write output to FILE; defaults to the input file with either a .obj
+    /// write output to FILE; defaults to the input filename with a .obj
     /// extension, or a .asm extension if -D is specified
     #[arg(short, long, value_name = "FILE")]
-    output: Option<path::PathBuf>,
+    output: Option<PathBuf>,
 
     /// file to write the symbol table to (or read it from, if -D is specified);
-    /// defaults to the name of the input file with a .sym extension
+    /// by default no symbol table will be read/written
     #[arg(short, long, value_name = "FILE")]
-    symbols: Option<path::PathBuf>,
+    symbols: Option<PathBuf>,
 
     /// read input from FILE
     #[arg(value_name = "FILE", required = true)]

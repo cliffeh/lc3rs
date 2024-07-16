@@ -321,15 +321,18 @@ impl<'source> Parser<'source> {
                 let offset6 = self.expect_numlit()?;
                 Ok(Instruction::Str(dr, base_r, offset6))
             }
-            Token::TRAP => Ok(Instruction::Trap(self.expect_numlit()?)),
+            Token::TRAP => Ok(Instruction::Trap(
+                // TODO fix dangerous unwrap
+                Trap::try_from(self.expect_numlit()?).unwrap(),
+            )),
 
             // traps
-            Token::GETC => Ok(Instruction::Trap(Trap::GETC as u16)),
-            Token::OUT => Ok(Instruction::Trap(Trap::OUT as u16)),
-            Token::PUTS => Ok(Instruction::Trap(Trap::PUTS as u16)),
-            Token::IN => Ok(Instruction::Trap(Trap::IN as u16)),
-            Token::PUTSP => Ok(Instruction::Trap(Trap::PUTSP as u16)),
-            Token::HALT => Ok(Instruction::Trap(Trap::HALT as u16)),
+            Token::GETC => Ok(Instruction::Trap(Trap::GETC)),
+            Token::OUT => Ok(Instruction::Trap(Trap::OUT)),
+            Token::PUTS => Ok(Instruction::Trap(Trap::PUTS)),
+            Token::IN => Ok(Instruction::Trap(Trap::IN)),
+            Token::PUTSP => Ok(Instruction::Trap(Trap::PUTSP)),
+            Token::HALT => Ok(Instruction::Trap(Trap::HALT)),
 
             // assembler directives
             Token::FILL => {
@@ -661,7 +664,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(0x20)
+            Instruction::Trap(Trap::GETC)
         );
     }
 
@@ -671,7 +674,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::GETC as u16)
+            Instruction::Trap(Trap::GETC)
         );
     }
 
@@ -681,7 +684,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::OUT as u16)
+            Instruction::Trap(Trap::OUT)
         );
     }
 
@@ -691,7 +694,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::PUTS as u16)
+            Instruction::Trap(Trap::PUTS)
         );
     }
 
@@ -701,7 +704,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::IN as u16)
+            Instruction::Trap(Trap::IN)
         );
     }
 
@@ -711,7 +714,7 @@ mod tests {
         let la = parser.expect_next_token().unwrap();
         assert_eq!(
             parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::PUTSP as u16)
+            Instruction::Trap(Trap::PUTSP)
         );
     }
 

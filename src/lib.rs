@@ -26,6 +26,7 @@ pub enum Op {
     TRAP,   /* execute trap */
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -67,7 +68,7 @@ pub enum Instruction {
     St(Reg, u16, Option<String>),
     Sti(Reg, u16, Option<String>),
     Str(Reg, Reg, u16),
-    Trap(u16),
+    Trap(Trap),
 
     // assembler directives
     Fill(u16, Option<String>),
@@ -293,13 +294,16 @@ impl fmt::Display for Instruction {
             }
             Instruction::Br(flags, pcoffset9, optlabel) => {
                 write!(f, "BR")?;
-                if flags & 0x4 /*COND_NEG*/ != 0 { // TODO
+                if flags & 0x4 /*COND_NEG*/ != 0 {
+                    // TODO
                     write!(f, "n")?;
                 }
-                if flags & 0x2 /* COND_ZRO */ != 0 { // TODO 
+                if flags & 0x2 /* COND_ZRO */ != 0 {
+                    // TODO
                     write!(f, "z")?;
                 }
-                if flags & 0x1 /* COND_POS */ != 0 { // TODO
+                if flags & 0x1 /* COND_POS */ != 0 {
+                    // TODO
                     write!(f, "p")?;
                 }
                 if let Some(label) = optlabel {
@@ -372,7 +376,9 @@ impl fmt::Display for Instruction {
             Instruction::Str(sr, base_r, offset6) => {
                 write!(f, "STR {:#?}, {:#?}, #{}", sr, base_r, *offset6 as i16)?;
             }
-            Instruction::Trap(_) => todo!(),
+            Instruction::Trap(trap) => {
+                write!(f, "{}", trap)?;
+            }
             Instruction::Fill(value, optlabel) => {
                 if let Some(label) = optlabel {
                     write!(f, ".FILL {}", label)?;
@@ -380,7 +386,13 @@ impl fmt::Display for Instruction {
                     write!(f, ".FILL x{:04x}", value)?;
                 }
             }
-            Instruction::Stringz(_) => todo!(),
+            Instruction::Stringz(bytes) => {
+                write!(f, ".STRINGZ \"")?;
+                for b in bytes {
+                    write!(f, "{}", *b as char)?;
+                }
+                write!(f, "\"")?;
+            }
         }
         Ok(())
     }
