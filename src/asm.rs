@@ -166,8 +166,10 @@ impl<'source> Parser<'source> {
                     prog.symbols.insert(label, iaddr);
                 }
                 _ => {
-                    let (instruction, maybelabel) = self.parse_instruction(token)?;
-                    prog.instructions.push(instruction);
+                    let (instructions, maybelabel) = self.parse_instruction(token)?;
+                    for instruction in instructions {
+                        prog.instructions.push(*instruction);
+                    }
                     if let Some(label) = maybelabel {
                         // TODO check for duplicate labels
                         prog.symbols.insert(label, iaddr);
@@ -180,7 +182,7 @@ impl<'source> Parser<'source> {
         Ok(prog)
     }
 
-    fn parse_instruction(&mut self, la: Token) -> Result<(u16, Option<String>), ParseError> {
+    fn parse_instruction(&mut self, la: Token) -> Result<(&[u16], Option<String>), ParseError> {
         match la {
             // ops
             Token::ADD(op) | Token::AND(op) => {
@@ -190,8 +192,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
-                    Token::NUMLIT(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | imm5, None)),
+                    Token::REG(r3) => Ok((&[op | r1 << 9 | r2 << 6 | r3], None)),
+                    Token::NUMLIT(imm5) => Ok((&[op | r1 << 9 | r2 << 6 | 1 << 5 | imm5], None)),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "REG or imm5".to_string(),
                         found: token,
@@ -202,8 +204,8 @@ impl<'source> Parser<'source> {
             Token::BR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok((op | pcoffset9, None)),
-                    Token::LABEL(label) => Ok((op, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok((&[op | pcoffset9], None)),
+                    Token::LABEL(label) => Ok((&[op], Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -211,13 +213,13 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::JMP(op) | Token::RET(op) => Ok((op | self.expect_reg()? << 6, None)),
+            Token::JMP(op) | Token::RET(op) => Ok((&[op | self.expect_reg()? << 6], None)),
 
             Token::JSR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset11) => Ok((op | 1 << 11 | pcoffset11, None)),
-                    Token::LABEL(label) => Ok((op | 1 << 11, Some(label))),
+                    Token::NUMLIT(pcoffset11) => Ok((&[op | 1 << 11 | pcoffset11], None)),
+                    Token::LABEL(label) => Ok((&[op | 1 << 11], Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset11".to_string(),
                         found: token,
@@ -225,15 +227,15 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::JSRR(op) => Ok((op | self.expect_reg()?, None)),
+            Token::JSRR(op) => Ok((&[op | self.expect_reg()? << 6], None)),
 
             Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
                 let r1 = self.expect_reg()?;
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok((op | r1 << 9 | pcoffset9, None)),
-                    Token::LABEL(label) => Ok((op | r1 << 9, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok((&[op | r1 << 9 | pcoffset9], None)),
+                    Token::LABEL(label) => Ok((&[op | r1 << 9], Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -247,36 +249,33 @@ impl<'source> Parser<'source> {
                 let r2 = self.expect_reg()?;
                 self.expect_comma()?;
                 let offset6 = self.expect_numlit()?;
-                Ok((op | r1 << 9 | r2 << 6 | offset6, None))
+                Ok((&[op | r1 << 9 | r2 << 6 | offset6], None))
             }
 
             Token::NOT(op) => {
                 let r1 = self.expect_reg()?;
                 self.expect_comma()?;
                 let r2 = self.expect_reg()?;
-                Ok((op | r1 << 9 | r2 << 6 | 0b111111, None))
+                Ok((&[op | r1 << 9 | r2 << 6 | 0b111111], None))
             }
             Token::RTI(op) => Ok((op, None)),
 
-            Token::TRAP => Ok(Instruction::Trap(
-                // TODO fix dangerous unwrap
-                Trap::try_from(self.expect_numlit()?).unwrap(),
-            )),
+            Token::TRAP(op) => Ok((&[op | self.expect_numlit()?], None)),
 
             // traps
-            Token::GETC => Ok(Instruction::Trap(Trap::GETC)),
-            Token::OUT => Ok(Instruction::Trap(Trap::OUT)),
-            Token::PUTS => Ok(Instruction::Trap(Trap::PUTS)),
-            Token::IN => Ok(Instruction::Trap(Trap::IN)),
-            Token::PUTSP => Ok(Instruction::Trap(Trap::PUTSP)),
-            Token::HALT => Ok(Instruction::Trap(Trap::HALT)),
+            Token::GETC(op)
+            | Token::OUT(op)
+            | Token::PUTS(op)
+            | Token::IN(op)
+            | Token::PUTSP(op)
+            | Token::HALT(op) => Ok((&[op], None)),
 
             // assembler directives
             Token::FILL => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(value) => Ok(Instruction::Fill(value, None)),
-                    Token::LABEL(label) => Ok(Instruction::Fill(0, Some(label))),
+                    Token::NUMLIT(value) => Ok((&[value], None)),
+                    Token::LABEL(label) => Ok((&[0u16], Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or NUMLIT".to_string(),
                         found: token,
@@ -284,7 +283,9 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::STRINGZ => Ok(Instruction::Stringz(self.expect_strlit()?)),
+            Token::STRINGZ => todo!(),
+            // Ok(
+            //     (&self.expect_strlit()?.into_iter().map(|b| b as u16).collect(), None)),
 
             _ => Err(ParseError::UnexpectedToken {
                 expected: "operation or assembler directive".to_string(),
