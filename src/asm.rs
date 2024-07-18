@@ -1,4 +1,4 @@
-use crate::{Instruction, Program, Reg, Trap};
+use crate::{Op, Program, Trap};
 use logos::{Lexer, Logos};
 use std::num::ParseIntError;
 use thiserror::Error;
@@ -12,14 +12,14 @@ pub enum Token {
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
-    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR(0b111))));
-    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR(0b111))));
-    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR(0b100))));
-    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR(0b010))));
-    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR(0b001))));
-    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR(0b110))));
-    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR(0b101))));
-    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR(0b011))));
+    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b111))));
+    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b111))));
+    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b100))));
+    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b010))));
+    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b001))));
+    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b110))));
+    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b101))));
+    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b011))));
     /// ```
     #[regex(r"BRn?z?p?",
      callback = |lex| {
@@ -37,57 +37,57 @@ pub enum Token {
         if flags == 0 {
             flags = 0b111;
         }
-        flags
+        (Op::BR as u16) << 12 | flags
     }, ignore(ascii_case))]
-    BR(u16), /* branch */
-    #[token("ADD", ignore(ascii_case))]
-    ADD, /* add  */
-    #[token("LD", ignore(ascii_case))]
-    LD, /* load */
-    #[token("ST", ignore(ascii_case))]
-    ST, /* store */
-    #[token("JSR", ignore(ascii_case))]
-    JSR, /* jump register */
-    #[token("JSRR", ignore(ascii_case))]
-    JSRR, /* JSR, but takes a register argument */
-    #[token("AND", ignore(ascii_case))]
-    AND, /* bitwise and */
-    #[token("LDR", ignore(ascii_case))]
-    LDR, /* load register */
-    #[token("STR", ignore(ascii_case))]
-    STR, /* store register */
-    #[token("RTI", ignore(ascii_case))]
-    RTI, /* unused */
-    #[token("NOT", ignore(ascii_case))]
-    NOT, /* bitwise not */
-    #[token("LDI", ignore(ascii_case))]
-    LDI, /* load indirect */
-    #[token("STI", ignore(ascii_case))]
-    STI, /* store indirect */
-    #[token("JMP", ignore(ascii_case))]
-    JMP, /* jump */
-    #[token("RET", ignore(ascii_case))]
-    RET, /* equivalent to JMP R7 */
-    #[token("LEA", ignore(ascii_case))]
-    LEA, /* load effective address */
-    #[token("TRAP", ignore(ascii_case))]
-    TRAP, /* execute trap */
+    BR(u16),
+    #[token("ADD", |_| (Op::ADD as u16) << 12, ignore(ascii_case))]
+    ADD(u16),
+    #[token("LD", |_| (Op::LD as u16) << 12, ignore(ascii_case))]
+    LD(u16),
+    #[token("ST", |_| (Op::ST as u16) << 12, ignore(ascii_case))]
+    ST(u16),
+    #[token("JSR", |_| (Op::JSR as u16) << 12 | 1 << 11, ignore(ascii_case))]
+    JSR(u16),
+    #[token("JSRR", |_| (Op::JSR as u16) << 12, ignore(ascii_case))]
+    JSRR(u16),
+    #[token("AND", |_| (Op::AND as u16) << 12, ignore(ascii_case))]
+    AND(u16),
+    #[token("LDR", |_| (Op::LDR as u16) << 12, ignore(ascii_case))]
+    LDR(u16),
+    #[token("STR", |_| (Op::STR as u16) << 12, ignore(ascii_case))]
+    STR(u16),
+    #[token("RTI", |_| (Op::RTI as u16) << 12, ignore(ascii_case))]
+    RTI(u16),
+    #[token("NOT", |_| (Op::NOT as u16) << 12, ignore(ascii_case))]
+    NOT(u16),
+    #[token("LDI", |_| (Op::LDI as u16) << 12, ignore(ascii_case))]
+    LDI(u16),
+    #[token("STI", |_| (Op::STI as u16) << 12, ignore(ascii_case))]
+    STI(u16),
+    #[token("JMP", |_| (Op::JMP as u16) << 12, ignore(ascii_case))]
+    JMP(u16),
+    #[token("RET", |_| (Op::JMP as u16) << 12 | 0x7 << 6, ignore(ascii_case))]
+    RET(u16),
+    #[token("LEA", |_| (Op::LEA as u16) << 12, ignore(ascii_case))]
+    LEA(u16),
+    #[token("TRAP", |_| (Op::TRAP as u16) << 12, ignore(ascii_case))]
+    TRAP(u16),
 
-    // traps
-    #[token("GETC", ignore(ascii_case))]
-    GETC, /* get character from keyboard, not echoed */
-    #[token("OUT", ignore(ascii_case))]
-    OUT, /* output a character */
-    #[token("PUTS", ignore(ascii_case))]
-    PUTS, /* output a word string */
-    #[token("IN", ignore(ascii_case))]
-    IN, /* get character from keyboard, echoed onto the terminal */
-    #[token("PUTSP", ignore(ascii_case))]
-    PUTSP, /* output a byte string */
-    #[token("HALT", ignore(ascii_case))]
-    HALT, /* halt the program */
+    /* traps */
+    #[token("GETC", |_| (Op::TRAP as u16) << 12 | (Trap::GETC as u16), ignore(ascii_case))]
+    GETC(u16),
+    #[token("OUT", |_| (Op::TRAP as u16) << 12 | (Trap::OUT as u16), ignore(ascii_case))]
+    OUT(u16),
+    #[token("PUTS", |_| (Op::TRAP as u16) << 12 | (Trap::PUTS as u16), ignore(ascii_case))]
+    PUTS(u16),
+    #[token("IN", |_| (Op::TRAP as u16) << 12 | (Trap::IN as u16), ignore(ascii_case))]
+    IN(u16),
+    #[token("PUTSP", |_| (Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), ignore(ascii_case))]
+    PUTSP(u16),
+    #[token("HALT", |_| (Op::TRAP as u16) << 12 | (Trap::HALT as u16), ignore(ascii_case))]
+    HALT(u16),
 
-    // registers
+    /* registers */
     /// ```
     /// use lc3::Reg;
     /// use lc3::asm::Token;
@@ -103,10 +103,10 @@ pub enum Token {
     /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::REG(Reg::R7))));
     /// ```
     #[regex("R[0-7]", callback = |lex| {
-        Reg::from(lex.slice().as_bytes()[1] - b'0')
+        (lex.slice().as_bytes()[1] - b'0') as u16
     },
     ignore(ascii_case))]
-    REG(Reg),
+    REG(u16),
 
     // assembler directives
     #[token(".ORIG", ignore(ascii_case))]
@@ -152,7 +152,7 @@ impl<'source> Parser<'source> {
         let mut prog = Program::default();
 
         self.expect_orig()?;
-        prog.orig = self.expect_numlit()?;
+        prog.origin = self.expect_numlit()?;
 
         let mut iaddr = 0usize;
         loop {
@@ -163,10 +163,15 @@ impl<'source> Parser<'source> {
                     break;
                 }
                 Token::LABEL(label) => {
-                    prog.syms.insert(label, iaddr as u16);
+                    prog.symbols.insert(label, iaddr);
                 }
                 _ => {
-                    prog.instructions.push(self.parse_instruction(token)?);
+                    let (instruction, maybelabel) = self.parse_instruction(token)?;
+                    prog.instructions.push(instruction);
+                    if let Some(label) = maybelabel {
+                        // TODO check for duplicate labels
+                        prog.symbols.insert(label, iaddr);
+                    }
                 }
             }
             iaddr += 1;
@@ -175,152 +180,84 @@ impl<'source> Parser<'source> {
         Ok(prog)
     }
 
-    fn parse_instruction(&mut self, la: Token) -> Result<Instruction, ParseError> {
+    fn parse_instruction(&mut self, la: Token) -> Result<(u16, Option<String>), ParseError> {
         match la {
             // ops
-            Token::ADD => {
-                let dr = self.expect_reg()?;
+            Token::ADD(op) | Token::AND(op) => {
+                let r1 = self.expect_reg()?;
                 self.expect_comma()?;
-                let sr1 = self.expect_reg()?;
+                let r2 = self.expect_reg()?;
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(sr2) => Ok(Instruction::AddReg(dr, sr1, sr2)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::AddImm5(dr, sr1, imm5)),
+                    Token::REG(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
+                    Token::NUMLIT(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | imm5, None)),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "REG or imm5".to_string(),
                         found: token,
                     }),
                 }
             }
-            Token::AND => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let sr1 = self.expect_reg()?;
-                self.expect_comma()?;
+
+            Token::BR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(sr2) => Ok(Instruction::AndReg(dr, sr1, sr2)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::AndImm5(dr, sr1, imm5)),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "REG or imm5".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::BR(flags) => {
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Br(flags, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::Br(flags, 0, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok((op | pcoffset9, None)),
+                    Token::LABEL(label) => Ok((op, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
                     }),
                 }
             }
-            Token::JMP => Ok(Instruction::Jmp(self.expect_reg()?)),
-            Token::JSR => {
+
+            Token::JMP(op) | Token::RET(op) => Ok((op | self.expect_reg()? << 6, None)),
+
+            Token::JSR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset11) => Ok(Instruction::Jsr(pcoffset11, None)),
-                    Token::LABEL(label) => Ok(Instruction::Jsr(0, Some(label))),
+                    Token::NUMLIT(pcoffset11) => Ok((op | 1 << 11 | pcoffset11, None)),
+                    Token::LABEL(label) => Ok((op | 1 << 11, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset11".to_string(),
                         found: token,
                     }),
                 }
             }
-            Token::JSRR => Ok(Instruction::Jsrr(self.expect_reg()?)),
-            Token::LD => {
-                let dr = self.expect_reg()?;
+
+            Token::JSRR(op) => Ok((op | self.expect_reg()?, None)),
+
+            Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
+                let r1 = self.expect_reg()?;
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ld(dr, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::Ld(dr, 0, Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok((op | r1 << 9 | pcoffset9, None)),
+                    Token::LABEL(label) => Ok((op | r1 << 9, Some(label))),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
                     }),
                 }
             }
-            Token::LDI => {
-                let dr = self.expect_reg()?;
+
+            Token::LDR(op) | Token::STR(op) => {
+                let r1 = self.expect_reg()?;
                 self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ldi(dr, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::Ldi(dr, 0, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::LDR => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let base_r = self.expect_reg()?;
+                let r2 = self.expect_reg()?;
                 self.expect_comma()?;
                 let offset6 = self.expect_numlit()?;
-                Ok(Instruction::Ldr(dr, base_r, offset6))
+                Ok((op | r1 << 9 | r2 << 6 | offset6, None))
             }
-            Token::LEA => {
-                let dr = self.expect_reg()?;
+
+            Token::NOT(op) => {
+                let r1 = self.expect_reg()?;
                 self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Lea(dr, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::Lea(dr, 0, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
+                let r2 = self.expect_reg()?;
+                Ok((op | r1 << 9 | r2 << 6 | 0b111111, None))
             }
-            Token::NOT => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let sr = self.expect_reg()?;
-                Ok(Instruction::Not(dr, sr))
-            }
-            Token::RET => Ok(Instruction::Jmp(Reg::R7)),
-            Token::RTI => Ok(Instruction::Rti),
-            Token::ST => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::St(dr, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::St(dr, 0, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::STI => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Sti(dr, pcoffset9, None)),
-                    Token::LABEL(label) => Ok(Instruction::Sti(dr, 0, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::STR => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let base_r = self.expect_reg()?;
-                self.expect_comma()?;
-                let offset6 = self.expect_numlit()?;
-                Ok(Instruction::Str(dr, base_r, offset6))
-            }
+            Token::RTI(op) => Ok((op, None)),
+
             Token::TRAP => Ok(Instruction::Trap(
                 // TODO fix dangerous unwrap
                 Trap::try_from(self.expect_numlit()?).unwrap(),
@@ -403,7 +340,7 @@ impl<'source> Parser<'source> {
         }
     }
 
-    fn expect_reg(&mut self) -> Result<Reg, ParseError> {
+    fn expect_reg(&mut self) -> Result<u16, ParseError> {
         let token = self.expect_next_token()?;
 
         if let Token::REG(value) = token {

@@ -1,9 +1,9 @@
 use clap::Parser;
-use lc3::{Program};
+use lc3::asm::Parser as LC3Parser;
+use lc3::Program;
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
-use lc3::asm::Parser as LC3Parser;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

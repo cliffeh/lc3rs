@@ -7,6 +7,7 @@ use std::fmt;
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
+/// Top 4 bits of an instruction, indicating what oparation it is
 pub enum Op {
     BR = 0, /* branch */
     ADD,    /* add  */
@@ -26,7 +27,7 @@ pub enum Op {
     TRAP,   /* execute trap */
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Trap vectors
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -36,61 +37,24 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Reg {
-    R0 = 0,
-    R1,
-    R2,
-    R3,
-    R4,
-    R5,
-    R6,
-    R7,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Instruction {
-    // ops
-    AddReg(Reg, Reg, Reg),
-    AddImm5(Reg, Reg, u16),
-    AndReg(Reg, Reg, Reg),
-    AndImm5(Reg, Reg, u16),
-    Br(u16, u16, Option<String>),
-    Jmp(Reg),
-    Jsr(u16, Option<String>),
-    Jsrr(Reg),
-    Ld(Reg, u16, Option<String>),
-    Ldi(Reg, u16, Option<String>),
-    Ldr(Reg, Reg, u16),
-    Lea(Reg, u16, Option<String>),
-    Not(Reg, Reg),
-    Rti,
-    St(Reg, u16, Option<String>),
-    Sti(Reg, u16, Option<String>),
-    Str(Reg, Reg, u16),
-    Trap(Trap),
-
-    // assembler directives
-    Fill(u16, Option<String>),
-    Stringz(Vec<u8>),
-}
-
 pub struct Program {
     /// Origin address of the program
-    pub orig: u16,
-    /// Instructions of the program
-    pub instructions: Vec<Instruction>,
-    /// Symbol table
-    pub syms: HashMap<String, u16>,
+    pub origin: u16,
+    /// List of instructions that comprise the program
+    pub instructions: Vec<u16>,
+    /// Symbol table, indexed by position in `instructions`
+    pub symbols: HashMap<String, usize>,
+    /// Referenced symbols, indexed by position in `instructions`
+    pub refs: HashMap<usize, String>,
 }
 
 impl Program {
     /// Creates a new program.
-    pub fn new(orig: u16, instructions: Vec<Instruction>) -> Program {
+    pub fn new(origin: u16, instructions: Vec<u16>) -> Program {
         Program {
-            orig,
+            origin,
             instructions,
-            syms: HashMap::new(),
+            symbols: HashMap::new(),
         }
     }
 
@@ -118,10 +82,10 @@ impl Program {
     /// ```
     pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        let mut symvec: Vec<(&String, &u16)> = self.syms.iter().collect();
+        let mut symvec: Vec<(&String, &u16)> = self.symbols.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, saddr) in symvec {
-            n += w.write(format!("x{:04x} {}\n", saddr + self.orig, sym).as_bytes())?;
+            n += w.write(format!("x{:04x} {}\n", saddr + self.origin, sym).as_bytes())?;
         }
         Ok(n)
     }
@@ -151,7 +115,7 @@ impl Program {
             let addr = u16::from_str_radix(&s, 16).unwrap();
             let symbol = String::from(split.next().unwrap());
 
-            self.syms.insert(symbol.clone(), addr);
+            self.symbols.insert(symbol.clone(), addr);
         }
 
         Ok(())
@@ -177,7 +141,7 @@ impl Program {
     /// assert_eq!(prog.lookup_symbol_by_address(0x4200).unwrap(), &"bar".to_string());
     /// ```
     pub fn lookup_symbol_by_address(&self, addr: u16) -> Option<&String> {
-        for (symbol, saddr) in self.syms.iter() {
+        for (symbol, saddr) in self.symbols.iter() {
             if *saddr == addr {
                 return Some(symbol);
             }
@@ -188,9 +152,9 @@ impl Program {
     /// Writes the program out to `w`.
     pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        n += w.write(&u16::to_be_bytes(self.orig as u16))?;
+        n += w.write(&u16::to_be_bytes(self.origin as u16))?;
         for instruction in &self.instructions {
-            n += w.write(&u16::to_be_bytes(0 /*u16::from(instruction)*/))?; // TODO!
+            n += w.write(&u16::to_be_bytes(*instruction))?; // TODO!
         }
         Ok(n)
     }
@@ -199,67 +163,14 @@ impl Program {
 impl Default for Program {
     fn default() -> Self {
         Program {
-            orig: 0x3000,
+            origin: 0x3000,
             instructions: vec![],
-            syms: HashMap::new(),
+            symbols: HashMap::new(),
         }
     }
 }
 
-impl From<u16> for Op {
-    fn from(value: u16) -> Self {
-        match value {
-            0x0 => Op::BR,
-            0x1 => Op::ADD,
-            0x2 => Op::LD,
-            0x3 => Op::ST,
-            0x4 => Op::JSR,
-            0x5 => Op::AND,
-            0x6 => Op::LDR,
-            0x7 => Op::STR,
-            0x8 => Op::RTI,
-            0x9 => Op::NOT,
-            0xA => Op::LDI,
-            0xB => Op::STI,
-            0xC => Op::JMP,
-            0xD => Op::RES,
-            0xE => Op::LEA,
-            0xF => Op::TRAP,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<u8> for Reg {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Reg::R0,
-            1 => Reg::R1,
-            2 => Reg::R2,
-            3 => Reg::R3,
-            4 => Reg::R4,
-            5 => Reg::R5,
-            6 => Reg::R6,
-            7 => Reg::R7,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<Reg> for u16 {
-    fn from(value: Reg) -> Self {
-        match value {
-            Reg::R0 => 0,
-            Reg::R1 => 1,
-            Reg::R2 => 2,
-            Reg::R3 => 3,
-            Reg::R4 => 4,
-            Reg::R5 => 5,
-            Reg::R6 => 6,
-            Reg::R7 => 7,
-        }
-    }
-}
+/* conversion functions */
 
 impl TryFrom<u16> for Trap {
     type Error = ();
@@ -277,146 +188,38 @@ impl TryFrom<u16> for Trap {
     }
 }
 
-impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Instruction::AddReg(dr, sr1, sr2) => {
-                write!(f, "ADD {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
-            }
-            Instruction::AddImm5(dr, sr1, imm5) => {
-                write!(f, "ADD {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
-            }
-            Instruction::AndReg(dr, sr1, sr2) => {
-                write!(f, "AND {:#?}, {:#?}, {:#?}", dr, sr1, sr2)?;
-            }
-            Instruction::AndImm5(dr, sr1, imm5) => {
-                write!(f, "AND {:#?}, {:#?}, #{}", dr, sr1, *imm5 as i16)?;
-            }
-            Instruction::Br(flags, pcoffset9, optlabel) => {
-                write!(f, "BR")?;
-                if flags & 0x4 /*COND_NEG*/ != 0 {
-                    // TODO
-                    write!(f, "n")?;
-                }
-                if flags & 0x2 /* COND_ZRO */ != 0 {
-                    // TODO
-                    write!(f, "z")?;
-                }
-                if flags & 0x1 /* COND_POS */ != 0 {
-                    // TODO
-                    write!(f, "p")?;
-                }
-                if let Some(label) = optlabel {
-                    write!(f, " {}", label)?;
-                } else {
-                    write!(f, " x{:04x}", pcoffset9)?;
-                }
-            }
-            Instruction::Jmp(base_r) => {
-                if *base_r == Reg::R7 {
-                    write!(f, "RET")?;
-                } else {
-                    write!(f, "JMP {:#?}", base_r)?;
-                }
-            }
-            Instruction::Jsr(pcoffset11, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "JSR {}", label)?;
-                } else {
-                    write!(f, "JSR x{:04x}", pcoffset11)?;
-                }
-            }
-            Instruction::Jsrr(base_r) => {
-                write!(f, "JSRR {:#?}", base_r)?;
-            }
-            Instruction::Ld(dr, pcoffset9, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "LD {:#?}, {}", dr, label)?;
-                } else {
-                    write!(f, "LD {:#?}, x{:04x}", dr, pcoffset9)?;
-                }
-            }
-            Instruction::Ldi(dr, pcoffset9, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "LDI {:#?}, {}", dr, label)?;
-                } else {
-                    write!(f, "LDI {:#?}, x{:04x}", dr, pcoffset9)?;
-                }
-            }
-            Instruction::Ldr(dr, base_r, offset6) => {
-                write!(f, "LDR {:#?}, {:#?}, #{}", dr, base_r, *offset6 as i16)?;
-            }
-            Instruction::Lea(dr, pcoffset9, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "LEA {:#?}, {}", dr, label)?;
-                } else {
-                    write!(f, "LEA {:#?}, x{:04x}", dr, pcoffset9)?;
-                }
-            }
-            Instruction::Not(dr, sr) => {
-                write!(f, "NOT {:#?}, {:#?}", dr, sr)?;
-            }
-            Instruction::Rti => {
-                write!(f, "RTI")?;
-            }
-            Instruction::St(sr, pcoffset9, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "ST {:#?}, {}", sr, label)?;
-                } else {
-                    write!(f, "ST {:#?}, x{:04x}", sr, pcoffset9)?;
-                }
-            }
-            Instruction::Sti(sr, pcoffset9, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, "STI {:#?}, {}", sr, label)?;
-                } else {
-                    write!(f, "STI {:#?}, x{:04x}", sr, pcoffset9)?;
-                }
-            }
-            Instruction::Str(sr, base_r, offset6) => {
-                write!(f, "STR {:#?}, {:#?}, #{}", sr, base_r, *offset6 as i16)?;
-            }
-            Instruction::Trap(trap) => {
-                write!(f, "{}", trap)?;
-            }
-            Instruction::Fill(value, optlabel) => {
-                if let Some(label) = optlabel {
-                    write!(f, ".FILL {}", label)?;
-                } else {
-                    write!(f, ".FILL x{:04x}", value)?;
-                }
-            }
-            Instruction::Stringz(bytes) => {
-                write!(f, ".STRINGZ \"")?;
-                for b in bytes {
-                    write!(f, "{}", *b as char)?;
-                }
-                write!(f, "\"")?;
-            }
-        }
-        Ok(())
+/* utilities */
+
+pub fn sign_extend(x: u16, count: usize) -> u16 {
+    if ((x >> (count - 1)) & 1) != 0 {
+        x | (0xFFFF << count)
+    } else {
+        x
     }
 }
 
-impl fmt::Display for Program {
+/* formatting */
+
+impl fmt::Display for Op {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, ".ORIG x{:04X}", self.orig)?;
-
-        eprintln!("instruction len: {}", self.instructions.len());
-
-        for iaddr in 0..self.instructions.len() {
-            // write!(f, "x{:04X} ", iaddr)?;
-
-            if let Some(symbol) = self.lookup_symbol_by_address(iaddr as u16 + self.orig) {
-                write!(f, "{} ", symbol)?;
-            }
-
-            writeln!(f, "{}", self.instructions[iaddr])?;
+        match *self {
+            Op::BR => write!(f, "BR"),
+            Op::ADD => write!(f, "ADD"),
+            Op::LD => write!(f, "LD"),
+            Op::ST => write!(f, "ST"),
+            Op::JSR => write!(f, "JSR"),
+            Op::AND => write!(f, "AND"),
+            Op::LDR => write!(f, "LDR"),
+            Op::STR => write!(f, "STR"),
+            Op::RTI => write!(f, "RTI"),
+            Op::NOT => write!(f, "NOT"),
+            Op::LDI => write!(f, "LDI"),
+            Op::STI => write!(f, "STI"),
+            Op::JMP => write!(f, "JMP"),
+            Op::RES => write!(f, "RES"),
+            Op::LEA => write!(f, "LEA"),
+            Op::TRAP => write!(f, "TRAP"),
         }
-
-        writeln!(f, ".END")?;
-
-        Ok(())
     }
 }
 
@@ -430,14 +233,5 @@ impl fmt::Display for Trap {
             Trap::PUTSP => write!(f, "PUTSP"),
             Trap::HALT => write!(f, "HALT"),
         }
-    }
-}
-
-// utility
-pub fn sign_extend(x: u16, count: usize) -> u16 {
-    if ((x >> (count - 1)) & 1) != 0 {
-        x | (0xFFFF << count)
-    } else {
-        x
     }
 }
