@@ -37,16 +37,17 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Instruction {
     pub word: u16,
     pub label: Option<String>,
 }
 
-pub struct Program<'p> {
+pub struct Program {
     /// Origin address of the program
     pub origin: u16,
     /// List of instructions that comprise the program
-    pub instructions: Vec<&'p Instruction>,
+    pub instructions: Vec<Instruction>,
     /// Symbol table, indexed by position in `instructions`
     pub symbols: HashMap<String, usize>,
     /// Referenced symbols, indexed by position in `instructions`
@@ -54,16 +55,16 @@ pub struct Program<'p> {
 }
 
 impl Instruction {
-    fn new(word: u16, label: Option<String>) -> Self {
+    pub fn new(word: u16, label: Option<String>) -> Self {
         Instruction{word, label}
     }
 }
 
-impl<'p> Program<'p> {
+impl<'p> Program {
     /// Creates a new program.
     pub fn new(
         origin: u16,
-        instructions: Vec<&'p Instruction>,
+        instructions: Vec<Instruction>,
         symbols: HashMap<String, usize>,
         refs: HashMap<usize, String>,
     ) -> Self {
@@ -177,7 +178,7 @@ impl<'p> Program<'p> {
     }
 }
 
-impl<'p> Default for Program<'p> {
+impl Default for Program {
     fn default() -> Self {
         Program::new(0x3000, vec![], HashMap::new(), HashMap::new())
     }
