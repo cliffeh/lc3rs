@@ -1,4 +1,4 @@
-use crate::{Op, Program, Trap};
+use crate::{Instruction, Op, Program, Trap};
 use logos::{Lexer, Logos};
 use std::num::ParseIntError;
 use thiserror::Error;
@@ -125,8 +125,10 @@ pub enum Token {
         Ok::<u16, ParseError>(value as u16)
     })]
     NUMLIT(u16),
-    #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].as_bytes().to_vec())]
-    STRLIT(Vec<u8>),
+    #[regex(r#""(?:[^"]|\\")*""#, callback = |lex| {
+        lex.slice()[1..lex.slice().len()-1].as_bytes().into_iter().map(|b| *b as u16).collect::<Vec<u16>>()
+    })]
+    STRLIT(Vec<u16>),
 
     // labels
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
@@ -156,23 +158,20 @@ impl<'source> Parser<'source> {
 
         let mut iaddr = 0usize;
         loop {
-            let token = self.expect_next_token()?;
+            let token = self.lexer.next().unwrap().unwrap(); // self.expect_next_token()?;
             match token {
                 // TODO what if there is add'l garbage after .END?
                 Token::END => {
                     break;
                 }
+                // TODO check for duplicate labels
                 Token::LABEL(label) => {
                     prog.symbols.insert(label, iaddr);
                 }
                 _ => {
-                    let (instructions, maybelabel) = self.parse_instruction(token)?;
+                    let instructions = self.parse_instruction_la(token)?;
                     for instruction in instructions {
-                        prog.instructions.push(*instruction);
-                    }
-                    if let Some(label) = maybelabel {
-                        // TODO check for duplicate labels
-                        prog.symbols.insert(label, iaddr);
+                        prog.instructions.push(instruction.to_owned());
                     }
                 }
             }
@@ -182,7 +181,7 @@ impl<'source> Parser<'source> {
         Ok(prog)
     }
 
-    fn parse_instruction(&mut self, la: Token) -> Result<(&[u16], Option<String>), ParseError> {
+    fn parse_instruction_la(&mut self, la: Token) -> Result<&[Instruction], ParseError> {
         match la {
             // ops
             Token::ADD(op) | Token::AND(op) => {
@@ -192,8 +191,8 @@ impl<'source> Parser<'source> {
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::REG(r3) => Ok((&[op | r1 << 9 | r2 << 6 | r3], None)),
-                    Token::NUMLIT(imm5) => Ok((&[op | r1 << 9 | r2 << 6 | 1 << 5 | imm5], None)),
+                    Token::REG(r3) => Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | r3, None)]),
+                    Token::NUMLIT(imm5) => Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | 1 << 5 | imm5, None)]),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "REG or imm5".to_string(),
                         found: token,
@@ -204,8 +203,8 @@ impl<'source> Parser<'source> {
             Token::BR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok((&[op | pcoffset9], None)),
-                    Token::LABEL(label) => Ok((&[op], Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(&[Instruction::new(op | pcoffset9, None)]),
+                    Token::LABEL(label) => Ok(&[Instruction::new(op, Some(label))]),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -213,13 +212,13 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::JMP(op) | Token::RET(op) => Ok((&[op | self.expect_reg()? << 6], None)),
+            Token::JMP(op) | Token::RET(op) => Ok(&[Instruction::new(op | self.expect_reg()? << 6, None)]),
 
             Token::JSR(op) => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset11) => Ok((&[op | 1 << 11 | pcoffset11], None)),
-                    Token::LABEL(label) => Ok((&[op | 1 << 11], Some(label))),
+                    Token::NUMLIT(pcoffset11) =>Ok(&[Instruction::new(op | 1 << 11 | pcoffset11, None)]),
+                    Token::LABEL(label) => Ok(&[Instruction::new(op | 1 << 11, Some(label))]),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset11".to_string(),
                         found: token,
@@ -227,15 +226,15 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::JSRR(op) => Ok((&[op | self.expect_reg()? << 6], None)),
+            Token::JSRR(op) => Ok(&[Instruction::new(op | self.expect_reg()? << 6, None)]),
 
             Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
                 let r1 = self.expect_reg()?;
                 self.expect_comma()?;
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(pcoffset9) => Ok((&[op | r1 << 9 | pcoffset9], None)),
-                    Token::LABEL(label) => Ok((&[op | r1 << 9], Some(label))),
+                    Token::NUMLIT(pcoffset9) => Ok(&[Instruction::new(op | r1 << 9 | pcoffset9, None)]),
+                    Token::LABEL(label) => Ok(&[Instruction::new(op | r1 << 9, Some(label))]),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or pcoffset9".to_string(),
                         found: token,
@@ -249,18 +248,18 @@ impl<'source> Parser<'source> {
                 let r2 = self.expect_reg()?;
                 self.expect_comma()?;
                 let offset6 = self.expect_numlit()?;
-                Ok((&[op | r1 << 9 | r2 << 6 | offset6], None))
+                Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | offset6, None)])
             }
 
             Token::NOT(op) => {
                 let r1 = self.expect_reg()?;
                 self.expect_comma()?;
                 let r2 = self.expect_reg()?;
-                Ok((&[op | r1 << 9 | r2 << 6 | 0b111111], None))
+                Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | 0b111111, None)])
             }
-            Token::RTI(op) => Ok((op, None)),
+            Token::RTI(op) => Ok(&[Instruction::new(op, None)]),
 
-            Token::TRAP(op) => Ok((&[op | self.expect_numlit()?], None)),
+            Token::TRAP(op) => Ok(&[Instruction::new(op | self.expect_numlit()?, None)]),
 
             // traps
             Token::GETC(op)
@@ -268,14 +267,14 @@ impl<'source> Parser<'source> {
             | Token::PUTS(op)
             | Token::IN(op)
             | Token::PUTSP(op)
-            | Token::HALT(op) => Ok((&[op], None)),
+            | Token::HALT(op) => Ok(&[Instruction::new(op, None)]),
 
             // assembler directives
             Token::FILL => {
                 let token = self.expect_next_token()?;
                 match token {
-                    Token::NUMLIT(value) => Ok((&[value], None)),
-                    Token::LABEL(label) => Ok((&[0u16], Some(label))),
+                    Token::NUMLIT(value) => Ok(&[Instruction::new(value, None)]),
+                    Token::LABEL(label) => Ok(&[Instruction::new(0u16, Some(label))]),
                     _ => Err(ParseError::UnexpectedToken {
                         expected: "LABEL or NUMLIT".to_string(),
                         found: token,
@@ -283,10 +282,7 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Token::STRINGZ => todo!(),
-            // Ok(
-            //     (&self.expect_strlit()?.into_iter().map(|b| b as u16).collect(), None)),
-
+            Token::STRINGZ => Ok((&self.expect_strlit()?[..], None)),
             _ => Err(ParseError::UnexpectedToken {
                 expected: "operation or assembler directive".to_string(),
                 found: la,
@@ -354,7 +350,7 @@ impl<'source> Parser<'source> {
         }
     }
 
-    fn expect_strlit(&mut self) -> Result<Vec<u8>, ParseError> {
+    fn expect_strlit(&mut self) -> Result<Vec<u16>, ParseError> {
         let token = self.expect_next_token()?;
 
         if let Token::STRLIT(value) = token {
@@ -387,44 +383,47 @@ mod tests {
 
     #[test]
     fn test_parse_add() {
-        let mut parser = Parser::new("ADD R0, R1, R2");
-        let la = parser.expect_next_token().unwrap();
+        let (&[instruction], optlabel) = Parser::new("ADD R0, R1, R2").parse_instruction().unwrap()
+        else {
+            unreachable!()
+        };
         assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::AddReg(Reg::R0, Reg::R1, Reg::R2)
+            (instruction, optlabel),
+            ((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)
         );
-        let mut parser = Parser::new("ADD R3, R4, #-7");
-        let la = parser.expect_next_token().unwrap();
+
+        let Ok((&[instruction], optlabel)) = Parser::new("ADD R3, R4, #-7").parse_instruction();
         assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::AddImm5(Reg::R3, Reg::R4, -7i16 as u16)
+            (instruction, optlabel),
+            (
+                (Op::ADD as u16) << 12 | 3 << 9 | 4 << 6 | -7i16 as u16,
+                None
+            )
         );
     }
 
     #[test]
     fn test_parse_and() {
-        let mut parser = Parser::new("AND R0, R1, R2");
-        let la = parser.expect_next_token().unwrap();
+        let (&[instruction], optlabel) = parse_instruction("AND R5, R6, R7");
         assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::AndReg(Reg::R0, Reg::R1, Reg::R2)
+            (instruction, optlabel),
+            ((Op::AND as u16) << 12 | 5 << 9 | 6 << 6 | 7, None)
         );
-        let mut parser = Parser::new("AND R3, R4, #-7");
-        let la = parser.expect_next_token().unwrap();
+
+        let (&[instruction], optlabel) = parse_instruction("AND R3, R4, #-7");
         assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::AndImm5(Reg::R3, Reg::R4, -7i16 as u16)
+            (instruction, optlabel),
+            (
+                (Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | -7i16 as u16,
+                None
+            )
         );
     }
 
     #[test]
     fn test_parse_br() {
-        let mut parser = Parser::new("BR x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Br(0b111, 0x1234, None)
-        );
+        let (&[instruction], optlabel) = parse_instruction("BR x1234");
+        assert_eq!((instruction, optlabel), ((Op::BR << 12) | 0x1234, None));
         let mut parser = Parser::new("BR LABEL");
         let la = parser.expect_next_token().unwrap();
         assert_eq!(

@@ -37,24 +37,41 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
-pub struct Program {
+pub struct Instruction {
+    pub word: u16,
+    pub label: Option<String>,
+}
+
+pub struct Program<'p> {
     /// Origin address of the program
     pub origin: u16,
     /// List of instructions that comprise the program
-    pub instructions: Vec<u16>,
+    pub instructions: Vec<&'p Instruction>,
     /// Symbol table, indexed by position in `instructions`
     pub symbols: HashMap<String, usize>,
     /// Referenced symbols, indexed by position in `instructions`
     pub refs: HashMap<usize, String>,
 }
 
-impl Program {
+impl Instruction {
+    fn new(word: u16, label: Option<String>) -> Self {
+        Instruction{word, label}
+    }
+}
+
+impl<'p> Program<'p> {
     /// Creates a new program.
-    pub fn new(origin: u16, instructions: Vec<u16>) -> Program {
+    pub fn new(
+        origin: u16,
+        instructions: Vec<&'p Instruction>,
+        symbols: HashMap<String, usize>,
+        refs: HashMap<usize, String>,
+    ) -> Self {
         Program {
             origin,
             instructions,
-            symbols: HashMap::new(),
+            symbols,
+            refs,
         }
     }
 
@@ -82,10 +99,10 @@ impl Program {
     /// ```
     pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;
-        let mut symvec: Vec<(&String, &u16)> = self.symbols.iter().collect();
+        let mut symvec: Vec<(&String, &usize)> = self.symbols.iter().collect();
         symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
         for (sym, saddr) in symvec {
-            n += w.write(format!("x{:04x} {}\n", saddr + self.origin, sym).as_bytes())?;
+            n += w.write(format!("x{:04x} {}\n", (*saddr as u16) + self.origin, sym).as_bytes())?;
         }
         Ok(n)
     }
@@ -112,7 +129,7 @@ impl Program {
             let mut split = line.split(" ").into_iter();
             let s = &split.next().unwrap()[1..];
 
-            let addr = u16::from_str_radix(&s, 16).unwrap();
+            let addr = usize::from_str_radix(&s, 16).unwrap();
             let symbol = String::from(split.next().unwrap());
 
             self.symbols.insert(symbol.clone(), addr);
@@ -140,7 +157,7 @@ impl Program {
     /// assert_eq!(prog.lookup_symbol_by_address(0x3020).unwrap(), &"foo".to_string());
     /// assert_eq!(prog.lookup_symbol_by_address(0x4200).unwrap(), &"bar".to_string());
     /// ```
-    pub fn lookup_symbol_by_address(&self, addr: u16) -> Option<&String> {
+    pub fn lookup_symbol_by_address(&self, addr: usize) -> Option<&String> {
         for (symbol, saddr) in self.symbols.iter() {
             if *saddr == addr {
                 return Some(symbol);
@@ -154,19 +171,15 @@ impl Program {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.origin as u16))?;
         for instruction in &self.instructions {
-            n += w.write(&u16::to_be_bytes(*instruction))?; // TODO!
+            n += w.write(&u16::to_be_bytes(instruction.word))?; // TODO!
         }
         Ok(n)
     }
 }
 
-impl Default for Program {
+impl<'p> Default for Program<'p> {
     fn default() -> Self {
-        Program {
-            origin: 0x3000,
-            instructions: vec![],
-            symbols: HashMap::new(),
-        }
+        Program::new(0x3000, vec![], HashMap::new(), HashMap::new())
     }
 }
 
