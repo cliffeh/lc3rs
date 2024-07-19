@@ -12,14 +12,14 @@ pub enum Token {
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
-    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b111))));
-    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b111))));
-    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b100))));
-    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b010))));
-    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b001))));
-    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b110))));
-    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b101))));
-    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | 0b011))));
+    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b111 << 9)))));
+    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b111 << 9)))));
+    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b100 << 9)))));
+    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b010 << 9)))));
+    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b001 << 9)))));
+    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b110 << 9)))));
+    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b101 << 9)))));
+    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b011 << 9)))));
     /// ```
     #[regex(r"BRn?z?p?",
      callback = |lex| {
@@ -37,7 +37,7 @@ pub enum Token {
         if flags == 0 {
             flags = 0b111;
         }
-        ((Op::BR as u16) << 12) | flags
+        ((Op::BR as u16) << 12) | (flags << 9)
     }, ignore(ascii_case))]
     BR(u16),
     #[token("ADD", |_| ((Op::ADD as u16) << 12), ignore(ascii_case))]
@@ -46,7 +46,7 @@ pub enum Token {
     LD(u16),
     #[token("ST", |_| ((Op::ST as u16) << 12), ignore(ascii_case))]
     ST(u16),
-    #[token("JSR", |_| ((Op::JSR as u16) << 12) | 1 << 11, ignore(ascii_case))]
+    #[token("JSR", |_| ((Op::JSR as u16) << 12) | (1 << 11), ignore(ascii_case))]
     JSR(u16),
     #[token("JSRR", |_| ((Op::JSR as u16) << 12), ignore(ascii_case))]
     JSRR(u16),
@@ -66,7 +66,7 @@ pub enum Token {
     STI(u16),
     #[token("JMP", |_| ((Op::JMP as u16) << 12), ignore(ascii_case))]
     JMP(u16),
-    #[token("RET", |_| ((Op::JMP as u16) << 12) | 0x7 << 6, ignore(ascii_case))]
+    #[token("RET", |_| ((Op::JMP as u16) << 12) | (0x7 << 6), ignore(ascii_case))]
     RET(u16),
     #[token("LEA", |_| ((Op::LEA as u16) << 12), ignore(ascii_case))]
     LEA(u16),
@@ -131,6 +131,7 @@ pub enum Token {
     STRLIT(Vec<u16>),
 
     // labels
+    // NB we're going to disallow a label beginning with `_` so we can use it for assembler directive hints
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
     LABEL(String),
 
@@ -183,8 +184,9 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
             }
             Token::STRINGZ => {
                 let strlit = expect_token!(lexer, Token::STRLIT(s) => s)?;
-                for c in strlit {
-                    prog.instructions.push(Instruction::new(c, None));
+                prog.instructions.push(Instruction::new(strlit[0], Some(String::from("_STRINGZ"))));
+                for c in strlit[1..].into_iter() {
+                    prog.instructions.push(Instruction::new(*c, None));
                 }
             }
             _ => {
@@ -197,16 +199,24 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
     Ok(prog)
 }
 
+fn fun() {
+    assert_eq!(parse_instruction("RET"), Ok(Instruction::new(((Op::JMP as u16) << 12) | (7 << 6), None)));
+}
+
 /// Parse a single LC3 instruction (outside of the context of a full program).
-/// 
+///
 /// ```rust
 /// use lc3::{Instruction, Op};
 /// use lc3::asm::parse_instruction;
-/// assert_eq!(parse_instruction("ADD R0, R1, R2").unwrap(), Instruction::new((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None));
-/// assert_eq!(parse_instruction("AND R3, R4, R5").unwrap(), Instruction::new((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None));
-/// assert_eq!(parse_instruction("ADD R6, R7, #-7").unwrap(), Instruction::new((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None));
-/// assert_eq!(parse_instruction("AND R6, R7, #-7").unwrap(), Instruction::new((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None));
+/// assert_eq!(parse_instruction("ADD R0, R1, R2"), Ok(Instruction::new((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
+/// assert_eq!(parse_instruction("AND R3, R4, R5"), Ok(Instruction::new((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
+/// assert_eq!(parse_instruction("ADD R6, R7, #-7"), Ok(Instruction::new((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None)));
+/// assert_eq!(parse_instruction("AND R6, R7, #-7"), Ok(Instruction::new((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None)));
+/// assert_eq!(parse_instruction("BR x1234"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9 | (0x1234 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("BR LABEL"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("JMP R1"), Ok(Instruction::new((Op::JMP as u16) << 12 | 1 << 6, None)));
 /// 
+///
 /// ```
 pub fn parse_instruction(source: &str) -> Result<Instruction, ParseError> {
     let mut lexer = Token::lexer(source);
@@ -231,82 +241,25 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
         }
+        Token::BR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None)),
+                Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken { found: token }),
+            }
+        }
+        Token::JMP(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            Ok(Instruction::new(op | r1 << 6, None))
+        }
+        Token::RET(op) => {
+            Ok(Instruction::new(op, None))
+        }
         _ => unimplemented!(),
     }
 }
 
-// pub struct Parser<'source> {
-//     lexer: Lexer<'source, Token>,
-// }
-
-// impl<'source> Parser<'source> {
-//     pub fn new(source: &'source str) -> Self {
-//         Parser {
-//             lexer: Token::lexer(source),
-//         }
-//     }
-
-//     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
-//         let mut prog = Program::default();
-
-//         self.expect_orig()?;
-//         prog.origin = self.expect_numlit()?;
-
-//         let mut iaddr = 0usize;
-//         loop {
-//             let token = self.lexer.next().unwrap().unwrap(); // self.expect_next_token()?;
-//             match token {
-//                 // TODO what if there is add'l garbage after .END?
-//                 Token::END => {
-//                     break;
-//                 }
-//                 // TODO check for duplicate labels
-//                 Token::LABEL(label) => {
-//                     prog.symbols.insert(label, iaddr);
-//                 }
-//                 _ => {
-//                     let instructions = self.parse_instruction_la(token)?;
-//                     for instruction in instructions {
-//                         prog.instructions.push(instruction.to_owned());
-//                     }
-//                 }
-//             }
-//             iaddr += 1;
-//         }
-
-//         Ok(prog)
-//     }
-
-//     fn parse_instruction_la(&mut self, la: Token) -> Result<&[Instruction], ParseError> {
-//         match la {
-//             // ops
-//             Token::ADD(op) | Token::AND(op) => {
-//                 let r1 = self.expect_reg()?;
-//                 self.expect_comma()?;
-//                 let r2 = self.expect_reg()?;
-//                 self.expect_comma()?;
-//                 let token = self.expect_next_token()?;
-//                 match token {
-//                     Token::REG(r3) => Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | r3, None)]),
-//                     Token::NUMLIT(imm5) => Ok(&[Instruction::new(op | r1 << 9 | r2 << 6 | 1 << 5 | imm5, None)]),
-//                     _ => Err(ParseError::UnexpectedToken {
-//                         expected: "REG or imm5".to_string(),
-//                         found: token,
-//                     }),
-//                 }
-//             }
-
-//             Token::BR(op) => {
-//                 let token = self.expect_next_token()?;
-//                 match token {
-//                     Token::NUMLIT(pcoffset9) => Ok(&[Instruction::new(op | pcoffset9, None)]),
-//                     Token::LABEL(label) => Ok(&[Instruction::new(op, Some(label))]),
-//                     _ => Err(ParseError::UnexpectedToken {
-//                         expected: "LABEL or pcoffset9".to_string(),
-//                         found: token,
-//                     }),
-//                 }
-//             }
 
 //             Token::JMP(op) | Token::RET(op) => Ok(&[Instruction::new(op | self.expect_reg()? << 6, None)]),
 
