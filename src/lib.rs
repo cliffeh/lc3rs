@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 pub mod asm;
 // pub mod vm;
-use std::fmt;
+use std::fmt::{self, Write as _};
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;
@@ -37,7 +37,7 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Instruction {
     pub word: u16,
     pub label: Option<String>,
@@ -56,7 +56,7 @@ pub struct Program {
 
 impl Instruction {
     pub fn new(word: u16, label: Option<String>) -> Self {
-        Instruction{word, label}
+        Instruction { word, label }
     }
 }
 
@@ -216,24 +216,24 @@ pub fn sign_extend(x: u16, count: usize) -> u16 {
 
 impl fmt::Display for Op {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Op::BR => write!(f, "BR"),
-            Op::ADD => write!(f, "ADD"),
-            Op::LD => write!(f, "LD"),
-            Op::ST => write!(f, "ST"),
-            Op::JSR => write!(f, "JSR"),
-            Op::AND => write!(f, "AND"),
-            Op::LDR => write!(f, "LDR"),
-            Op::STR => write!(f, "STR"),
-            Op::RTI => write!(f, "RTI"),
-            Op::NOT => write!(f, "NOT"),
-            Op::LDI => write!(f, "LDI"),
-            Op::STI => write!(f, "STI"),
-            Op::JMP => write!(f, "JMP"),
-            Op::RES => write!(f, "RES"),
-            Op::LEA => write!(f, "LEA"),
-            Op::TRAP => write!(f, "TRAP"),
-        }
+        f.write_str(match *self {
+            Op::BR => "BR",
+            Op::ADD => "ADD",
+            Op::LD => "LD",
+            Op::ST => "ST",
+            Op::JSR => "JSR",
+            Op::AND => "AND",
+            Op::LDR => "LDR",
+            Op::STR => "STR",
+            Op::RTI => "RTI",
+            Op::NOT => "NOT",
+            Op::LDI => "LDI",
+            Op::STI => "STI",
+            Op::JMP => "JMP",
+            Op::RES => "RES",
+            Op::LEA => "LEA",
+            Op::TRAP => "TRAP",
+        })
     }
 }
 
@@ -247,5 +247,19 @@ impl fmt::Display for Trap {
             Trap::PUTSP => write!(f, "PUTSP"),
             Trap::HALT => write!(f, "HALT"),
         }
+    }
+}
+
+impl fmt::Debug for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Instruction word: x{:04X}, label: {}",
+            self.word,
+            match &self.label {
+                Some(label) => format!("{}", label),
+                None => "None".to_string(),
+            }
+        )
     }
 }

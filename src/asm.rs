@@ -46,7 +46,7 @@ pub enum Token {
     LD(u16),
     #[token("ST", |_| ((Op::ST as u16) << 12), ignore(ascii_case))]
     ST(u16),
-    #[token("JSR", |_| ((Op::JSR as u16) << 12) | (1 << 11), ignore(ascii_case))]
+    #[token("JSR", |_| (((Op::JSR as u16) << 12) | (1 << 11)), ignore(ascii_case))]
     JSR(u16),
     #[token("JSRR", |_| ((Op::JSR as u16) << 12), ignore(ascii_case))]
     JSRR(u16),
@@ -66,7 +66,7 @@ pub enum Token {
     STI(u16),
     #[token("JMP", |_| ((Op::JMP as u16) << 12), ignore(ascii_case))]
     JMP(u16),
-    #[token("RET", |_| ((Op::JMP as u16) << 12) | (0x7 << 6), ignore(ascii_case))]
+    #[token("RET", |_| (((Op::JMP as u16) << 12) | (7 << 6)), ignore(ascii_case))]
     RET(u16),
     #[token("LEA", |_| ((Op::LEA as u16) << 12), ignore(ascii_case))]
     LEA(u16),
@@ -184,7 +184,8 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
             }
             Token::STRINGZ => {
                 let strlit = expect_token!(lexer, Token::STRLIT(s) => s)?;
-                prog.instructions.push(Instruction::new(strlit[0], Some(String::from("_STRINGZ"))));
+                prog.instructions
+                    .push(Instruction::new(strlit[0], Some(String::from("_STRINGZ"))));
                 for c in strlit[1..].into_iter() {
                     prog.instructions.push(Instruction::new(*c, None));
                 }
@@ -199,10 +200,6 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
     Ok(prog)
 }
 
-fn fun() {
-    assert_eq!(parse_instruction("RET"), Ok(Instruction::new(((Op::JMP as u16) << 12) | (7 << 6), None)));
-}
-
 /// Parse a single LC3 instruction (outside of the context of a full program).
 ///
 /// ```rust
@@ -210,13 +207,14 @@ fn fun() {
 /// use lc3::asm::parse_instruction;
 /// assert_eq!(parse_instruction("ADD R0, R1, R2"), Ok(Instruction::new((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
 /// assert_eq!(parse_instruction("AND R3, R4, R5"), Ok(Instruction::new((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
-/// assert_eq!(parse_instruction("ADD R6, R7, #-7"), Ok(Instruction::new((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None)));
-/// assert_eq!(parse_instruction("AND R6, R7, #-7"), Ok(Instruction::new((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | (-7i16 as u16), None)));
-/// assert_eq!(parse_instruction("BR x1234"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9 | (0x1234 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("ADD R6, R7, #-7"), Ok(Instruction::new((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("AND R6, R7, #-7"), Ok(Instruction::new((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("BR x123"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
 /// assert_eq!(parse_instruction("BR LABEL"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
 /// assert_eq!(parse_instruction("JMP R1"), Ok(Instruction::new((Op::JMP as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("RET"), Ok(Instruction::new((Op::JMP as u16) << 12 | 7 << 6, None)));
+/// assert_eq!(parse_instruction("JSR x123"), Ok(Instruction::new((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff), None)));
 /// 
-///
 /// ```
 pub fn parse_instruction(source: &str) -> Result<Instruction, ParseError> {
     let mut lexer = Token::lexer(source);
@@ -234,8 +232,9 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             let token = expect_token!(lexer)?;
             match token {
                 Token::REG(r3) => Ok(Instruction::new(op | r1 << 9 | r2 << 6 | r3, None)),
-                Token::NUMLIT(imm5) => Ok(Instruction::new(
-                    op | r1 << 9 | r2 << 6 | 1 << 5 | imm5,
+                Token::NUMLIT(imm5) => 
+                    Ok(Instruction::new(
+                    op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
                     None,
                 )),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
@@ -253,15 +252,21 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             let r1 = expect_token!(lexer, Token::REG(r) => r)?;
             Ok(Instruction::new(op | r1 << 6, None))
         }
-        Token::RET(op) => {
-            Ok(Instruction::new(op, None))
+        Token::RET(op) => Ok(Instruction::new(op, None)),
+        Token::JSR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset11) => {
+                    Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None))
+                }
+                Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken { found: token }),
+            }
         }
+
         _ => unimplemented!(),
     }
 }
-
-
-//             Token::JMP(op) | Token::RET(op) => Ok(&[Instruction::new(op | self.expect_reg()? << 6, None)]),
 
 //             Token::JSR(op) => {
 //                 let token = self.expect_next_token()?;
