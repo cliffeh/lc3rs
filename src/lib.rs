@@ -38,9 +38,16 @@ pub enum Trap {
 }
 
 #[derive(Clone, PartialEq)]
+pub enum Hint {
+    Fill,
+    Stringz,
+}
+
+#[derive(Clone, PartialEq)]
 pub struct Instruction {
     pub word: u16,
     pub label: Option<String>,
+    pub hint: Option<Hint>,
 }
 
 pub struct Program {
@@ -55,8 +62,8 @@ pub struct Program {
 }
 
 impl Instruction {
-    pub fn new(word: u16, label: Option<String>) -> Self {
-        Instruction { word, label }
+    pub fn new(word: u16, label: Option<String>, hint: Option<Hint>) -> Self {
+        Instruction { word, label, hint }
     }
 }
 
