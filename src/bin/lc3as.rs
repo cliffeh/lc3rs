@@ -1,6 +1,5 @@
 use clap::Parser;
-use lc3::asm::Parser as LC3Parser;
-use lc3::Program;
+use lc3::asm::parse_program;
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
@@ -130,11 +129,11 @@ struct Args {
 fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    let input = fs::read_to_string(args.input)?;
+    let source = fs::read_to_string(args.input)?;
 
-    eprintln!("input: {}", input);
+    // eprintln!("input: {}", input);
 
-    let prog = LC3Parser::new(&input).parse_program().unwrap();
+    let prog = parse_program(&source).unwrap();
 
     print!("{}", prog);
 

@@ -165,6 +165,12 @@ macro_rules! expect_token {
     };
 }
 
+pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
+    let prog = parse_program(source)?;
+
+    Ok(prog)
+}
+
 pub fn parse_program(source: &str) -> Result<Program, ParseError> {
     let mut prog = Program::default();
     let mut lexer = Token::lexer(source);

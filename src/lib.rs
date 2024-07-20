@@ -8,6 +8,8 @@ use std::fmt;
 pub const MEMORY_MAX: usize = 1 << 16;
 
 /// Top 4 bits of an instruction, indicating what oparation it is
+#[repr(u16)]
+
 pub enum Op {
     BR = 0, /* branch */
     ADD,    /* add  */
@@ -193,6 +195,12 @@ impl Default for Program {
 
 /* conversion functions */
 
+impl From<u16> for Op {
+    fn from(value: u16) -> Self {
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
 impl TryFrom<u16> for Trap {
     type Error = ();
 
@@ -253,6 +261,40 @@ impl fmt::Display for Trap {
             Trap::IN => write!(f, "IN"),
             Trap::PUTSP => write!(f, "PUTSP"),
             Trap::HALT => write!(f, "HALT"),
+        }
+    }
+}
+
+// TODO put this in program
+// match self.hint {
+//     Some(Hint::Fill) => {
+//         f.write_str(".FILL ");
+//         match self.label {
+//             Some(label) => f.write_str(&label),
+//             None => write!(f, "{:04X}", self.word)
+//         }
+//     },
+//     Some(Hint::Stringz) => {
+        
+//     }
+// }
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let word = self.word;
+        let op = Op::from(word >> 12);
+        write!(f, "{}", op)?;
+        match op {
+            Op::ADD | Op::AND => {
+                write!(f, " R{}, R{}, ", (word >> 9) & 0b111, (word >> 6) & 0b111)?;
+                if (word & (1 << 5)) == 0 {
+                    write!(f, "R{}", word & 0b111)
+                } else {
+                    write!(f, "#{}", (word & 0x1f) as i16)
+                }
+            }
+            
+            _ => unimplemented!()
         }
     }
 }
