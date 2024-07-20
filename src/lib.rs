@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 pub mod asm;
 // pub mod vm;
-use std::fmt::{self, Write as _};
+use std::fmt;
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;

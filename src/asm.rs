@@ -212,9 +212,19 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
 /// assert_eq!(parse_instruction("BR x123"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
 /// assert_eq!(parse_instruction("BR LABEL"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
 /// assert_eq!(parse_instruction("JMP R1"), Ok(Instruction::new((Op::JMP as u16) << 12 | 1 << 6, None)));
-/// assert_eq!(parse_instruction("RET"), Ok(Instruction::new((Op::JMP as u16) << 12 | 7 << 6, None)));
 /// assert_eq!(parse_instruction("JSR x123"), Ok(Instruction::new((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff), None)));
-/// 
+/// assert_eq!(parse_instruction("JSRR R1"), Ok(Instruction::new((Op::JSR as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("LD R1, x123"), Ok(Instruction::new((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LD R1, LABEL"), Ok(Instruction::new((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LDI R1, x123"), Ok(Instruction::new((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LDI R1, LABEL"), Ok(Instruction::new((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LEA R1, x123"), Ok(Instruction::new((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LEA R1, LABEL"), Ok(Instruction::new((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("RET"), Ok(Instruction::new((Op::JMP as u16) << 12 | 7 << 6, None)));
+/// assert_eq!(parse_instruction("ST R1, x123"), Ok(Instruction::new((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("ST R1, LABEL"), Ok(Instruction::new((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("STI R1, x123"), Ok(Instruction::new((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("STI R1, LABEL"), Ok(Instruction::new((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
 /// ```
 pub fn parse_instruction(source: &str) -> Result<Instruction, ParseError> {
     let mut lexer = Token::lexer(source);
@@ -232,15 +242,14 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             let token = expect_token!(lexer)?;
             match token {
                 Token::REG(r3) => Ok(Instruction::new(op | r1 << 9 | r2 << 6 | r3, None)),
-                Token::NUMLIT(imm5) => 
-                    Ok(Instruction::new(
+                Token::NUMLIT(imm5) => Ok(Instruction::new(
                     op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
                     None,
                 )),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
         }
-        Token::BR(op) => {
+        Token::BR(op)  => {
             let token = expect_token!(lexer)?;
             match token {
                 Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None)),
@@ -248,7 +257,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
         }
-        Token::JMP(op) => {
+        Token::JMP(op) | Token::JSRR(op) => {
             let r1 = expect_token!(lexer, Token::REG(r) => r)?;
             Ok(Instruction::new(op | r1 << 6, None))
         }
@@ -256,10 +265,18 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         Token::JSR(op) => {
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset11) => {
-                    Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None))
-                }
+                Token::NUMLIT(pcoffset11) => Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None)),
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken { found: token }),
+            }
+        }
+        Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | r1 << 9 | (pcoffset9 & 0x1ff), None)),
+                Token::LABEL(label) => Ok(Instruction::new(op | r1 << 9, Some(label))),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
         }
@@ -267,20 +284,6 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         _ => unimplemented!(),
     }
 }
-
-//             Token::JSR(op) => {
-//                 let token = self.expect_next_token()?;
-//                 match token {
-//                     Token::NUMLIT(pcoffset11) =>Ok(&[Instruction::new(op | 1 << 11 | pcoffset11, None)]),
-//                     Token::LABEL(label) => Ok(&[Instruction::new(op | 1 << 11, Some(label))]),
-//                     _ => Err(ParseError::UnexpectedToken {
-//                         expected: "LABEL or pcoffset11".to_string(),
-//                         found: token,
-//                     }),
-//                 }
-//             }
-
-//             Token::JSRR(op) => Ok(&[Instruction::new(op | self.expect_reg()? << 6, None)]),
 
 //             Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
 //                 let r1 = self.expect_reg()?;
