@@ -287,7 +287,9 @@ impl fmt::Display for Program {
                     }
                     writeln!(f, "\"")?;
                 }
-                None => { write!(f, "{}\n", self.instructions[iaddr])?; }
+                None => {
+                    write!(f, "{}\n", self.instructions[iaddr])?;
+                }
             }
             iaddr += 1;
         }
