@@ -6,3 +6,5 @@
   * ease/efficiency of reverse lookups
 * lc3as debugging output
 * better symbol table parser
+* better error messages
+  * line & column

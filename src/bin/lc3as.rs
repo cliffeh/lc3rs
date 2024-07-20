@@ -1,5 +1,5 @@
 use clap::Parser;
-use lc3::asm::parse_program;
+use lc3::asm::{parse_program, ParseError};
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
@@ -126,14 +126,17 @@ struct Args {
 //     Ok(())
 // }
 
-fn main() -> Result<(), Error> {
-    let args = Args::parse();
+fn main() -> Result<(), ParseError> {
+   // let args = Args::parse();
 
-    let source = fs::read_to_string(args.input)?;
+    // let source = fs::read_to_string(args.input).unwrap();
+
+    let mut source = String::new();
+    let _ = stdin().lock().read_to_string(&mut source);
 
     // eprintln!("input: {}", input);
 
-    let prog = parse_program(&source).unwrap();
+    let prog = parse_program(&source)?;
 
     print!("{}", prog);
 

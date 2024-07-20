@@ -280,7 +280,7 @@ impl fmt::Display for Program {
                         if let Some(label) = &self.instructions[iaddr].label {
                             writeln!(f, ".FILL {}", label)?;
                         } else {
-                            writeln!(f, ".FILL {}", self.instructions[iaddr].word)?;
+                            writeln!(f, ".FILL {:04X}", self.instructions[iaddr].word)?;
                         }
                     }
                     Hint::Stringz => {
