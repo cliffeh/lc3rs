@@ -281,21 +281,43 @@ impl fmt::Display for Trap {
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let word = self.word;
-        let op = Op::from(word >> 12);
-        write!(f, "{}", op)?;
+        let op = Op::from(self.word >> 12);
+        let s: String = format!("{}", op);
         match op {
             Op::ADD | Op::AND => {
-                write!(f, " R{}, R{}, ", (word >> 9) & 0b111, (word >> 6) & 0b111)?;
-                if (word & (1 << 5)) == 0 {
-                    write!(f, "R{}", word & 0b111)
+                s += format!(" R{}, R{}, ", (self.word >> 9) & 0b111, (self.word >> 6) & 0b111).as_str();
+                if (self.word & (1 << 5)) != 0 {
+                    s += format!("#{}", (self.word & 0x1f) as i16).as_str();
                 } else {
-                    write!(f, "#{}", (word & 0x1f) as i16)
+                    s += format!("R{}", self.word & 0b111).as_str();
                 }
             }
-            
+            Op::BR => {
+                if self.word & 1<<11 != 0 {
+                    s += "n";
+                }
+                if self.word & 1<<10 != 0 {
+                    s += "z";
+                }
+                if self.word & 1<<9 != 0 {
+                    s += "p";
+                }
+                match &self.label {
+                    Some(label) => s += format!(" {}", label).as_str(),
+                    None => s += format!(" x{:04X}", self.word & 0x1ff).as_str()
+                }
+            }
+            Op::JMP => {
+                let r1 = (self.word >> 6) & 0b111;
+                if r1 == 7 {
+                    s = String::from("RET");
+                } else {
+                    s += format!(" R{}", (self.word >> 6) & 0b111).as_str();
+                }
+            }
             _ => unimplemented!()
         }
+        f.write_str(&s)?
     }
 }
 
