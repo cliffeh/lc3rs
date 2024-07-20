@@ -360,10 +360,10 @@ impl fmt::Display for Instruction {
             }
             Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
                 let r1 = (self.word >> 9) & 0b111;
-                s += format!(" R{}", r1).as_str();
+                s += format!(" R{}, ", r1).as_str();
                 match &self.label {
-                    Some(label) => s += format!(" {}", label).as_str(),
-                    None => s += format!(" x{:04X}", self.word & 0x1ff).as_str(),
+                    Some(label) => s += format!("{}", label).as_str(),
+                    None => s += format!("x{:04X}", self.word & 0x1ff).as_str(),
                 }
             }
             Op::LDR | Op::STR => {
