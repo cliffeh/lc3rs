@@ -5,5 +5,4 @@
   * abstracting out symbol lookups
   * ease/efficiency of reverse lookups
 * lc3as debugging output
-* disassembler hints for assembler directives (.FILL, .STRINGZ)
-* lalrpop for parsing the symbol table
+* better symbol table parser

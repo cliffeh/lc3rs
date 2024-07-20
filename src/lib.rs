@@ -277,7 +277,11 @@ impl fmt::Display for Program {
             if let Some(hint) = self.hints.get(&iaddr) {
                 match hint {
                     Hint::Fill => {
-                        writeln!(f, ".FILL {}", self.instructions[iaddr])?;
+                        if let Some(label) = &self.instructions[iaddr].label {
+                            writeln!(f, ".FILL {}", label)?;
+                        } else {
+                            writeln!(f, ".FILL {}", self.instructions[iaddr].word)?;
+                        }
                     }
                     Hint::Stringz => {
                         f.write_str(".STRINGZ \"")?;

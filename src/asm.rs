@@ -121,7 +121,7 @@ pub enum Token {
     /* literals */
     #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]+", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
-        let value = i16::from_str_radix(&lex.slice()[1..], radix)?;
+        let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
         Ok::<u16, ParseError>(value as u16)
     })]
     NUMLIT(u16),
@@ -165,17 +165,19 @@ macro_rules! expect_token {
     };
 }
 
+/// Parse LC3 source assembly into a binary program and resolve all symbol references.
 pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
     let prog = parse_program(source)?;
     // TODO resolve symbols
     Ok(prog)
 }
 
+/// Parse LC3 source assembly into a binary program.
 pub fn parse_program(source: &str) -> Result<Program, ParseError> {
     let mut prog = Program::default();
     let mut lexer = Token::lexer(source);
 
-    expect_token!(lexer, Token::ORIG => ())?;
+    expect_token!(lexer, Token::ORIG)?;
     prog.origin = expect_token!(lexer, Token::NUMLIT(addr) => addr)?;
 
     loop {
@@ -195,7 +197,7 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
                 match token {
                     Token::NUMLIT(word) => prog
                         .instructions
-                        .push(Instruction::new(word + prog.origin, None)),
+                        .push(Instruction::new(word.wrapping_add(prog.origin), None)),
                     Token::LABEL(label) => prog.instructions.push(Instruction::new(0, Some(label))),
                     _ => return Err(ParseError::UnexpectedToken { found: token }),
                 }
@@ -221,6 +223,8 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
 }
 
 /// Parse a single LC3 instruction (outside of the context of a full program).
+///
+/// Most users won't need to use this; it's mostly helpful for testing/debugging.
 ///
 /// ```rust
 /// use lc3::{Instruction, Op, Trap};
@@ -353,9 +357,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
 #[derive(Error, Clone, Debug, Default, PartialEq)]
 pub enum ParseError {
     #[error("unexpected token: {found:?}")]
-    UnexpectedToken {
-        /* expected: String,*/ found: Token,
-    },
+    UnexpectedToken { found: Token },
     #[error("unexpected EOF")]
     UnexpectedEOF,
     #[error("error parsing u16 from {0}")]
