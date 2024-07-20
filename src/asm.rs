@@ -192,10 +192,15 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
             Token::FILL => {
                 let token = expect_token!(lexer)?;
                 match token {
-                    Token::NUMLIT(word) => prog
-                        .instructions
-                        .push(Instruction::new(word + prog.origin, None, Some(Hint::Fill))),
-                    Token::LABEL(label) => prog.instructions.push(Instruction::new(0, Some(label), Some(Hint::Fill))),
+                    Token::NUMLIT(word) => prog.instructions.push(Instruction::new(
+                        word + prog.origin,
+                        None,
+                        Some(Hint::Fill),
+                    )),
+                    Token::LABEL(label) => {
+                        prog.instructions
+                            .push(Instruction::new(0, Some(label), Some(Hint::Fill)))
+                    }
                     _ => return Err(ParseError::UnexpectedToken { found: token }),
                 }
             }
@@ -206,6 +211,8 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
                 for c in strlit[1..].into_iter() {
                     prog.instructions.push(Instruction::new(*c, None, None));
                 }
+                // null terminate
+                prog.instructions.push(Instruction::new(0, None, None));
             }
             _ => {
                 prog.instructions
@@ -273,7 +280,8 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                 Token::REG(r3) => Ok(Instruction::new(op | r1 << 9 | r2 << 6 | r3, None, None)),
                 Token::NUMLIT(imm5) => Ok(Instruction::new(
                     op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
-                    None, None
+                    None,
+                    None,
                 )),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
@@ -281,7 +289,9 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         Token::BR(op) => {
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None, None)),
+                Token::NUMLIT(pcoffset9) => {
+                    Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None, None))
+                }
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label), None)),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
@@ -294,7 +304,9 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         Token::JSR(op) => {
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset11) => Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None, None)),
+                Token::NUMLIT(pcoffset11) => {
+                    Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None, None))
+                }
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label), None)),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
@@ -304,9 +316,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             expect_token!(lexer, Token::COMMA)?;
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset9) => {
-                    Ok(Instruction::new(op | r1 << 9 | (pcoffset9 & 0x1ff), None, None))
-                }
+                Token::NUMLIT(pcoffset9) => Ok(Instruction::new(
+                    op | r1 << 9 | (pcoffset9 & 0x1ff),
+                    None,
+                    None,
+                )),
                 Token::LABEL(label) => Ok(Instruction::new(op | r1 << 9, Some(label), None)),
                 _ => Err(ParseError::UnexpectedToken { found: token }),
             }
@@ -319,14 +333,19 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             let offset6 = expect_token!(lexer, Token::NUMLIT(offset6) => offset6)?;
             Ok(Instruction::new(
                 op | r1 << 9 | r2 << 6 | (offset6 & 0x3f),
-                None, None
+                None,
+                None,
             ))
         }
         Token::NOT(op) => {
             let r1 = expect_token!(lexer, Token::REG(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
             let r2 = expect_token!(lexer, Token::REG(r) => r)?;
-            Ok(Instruction::new(op | r1 << 9 | r2 << 6 | 0b111111, None, None))
+            Ok(Instruction::new(
+                op | r1 << 9 | r2 << 6 | 0b111111,
+                None,
+                None,
+            ))
         }
         Token::RTI(op) => Ok(Instruction::new(op, None, None)),
 

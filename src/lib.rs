@@ -265,19 +265,35 @@ impl fmt::Display for Trap {
     }
 }
 
-// TODO put this in program
-// match self.hint {
-//     Some(Hint::Fill) => {
-//         f.write_str(".FILL ");
-//         match self.label {
-//             Some(label) => f.write_str(&label),
-//             None => write!(f, "{:04X}", self.word)
-//         }
-//     },
-//     Some(Hint::Stringz) => {
+impl fmt::Display for Program {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, ".ORIG x{:04X}", self.origin)?;
 
-//     }
-// }
+        let mut iaddr = 0;
+        while iaddr < self.instructions.len() {
+            if let Some(label) = self.lookup_symbol_by_address(iaddr) {
+                write!(f, "{} ", label)?;
+            }
+            match self.instructions[iaddr].hint {
+                Some(Hint::Fill) => {
+                    writeln!(f, ".FILL {}", self.instructions[iaddr])?;
+                }
+                Some(Hint::Stringz) => {
+                    f.write_str(".STRINGZ \"")?;
+                    while self.instructions[iaddr].word != 0 {
+                        let b = (self.instructions[iaddr].word & 0xff) as u8;
+                        write!(f, "{}", b as char)?;
+                        iaddr += 1;
+                    }
+                    writeln!(f, "\"")?;
+                }
+                None => { write!(f, "{}\n", self.instructions[iaddr])?; }
+            }
+            iaddr += 1;
+        }
+        writeln!(f, ".END")
+    }
+}
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -385,7 +401,13 @@ impl fmt::Display for Instruction {
                     }
                 }
             }
-            Op::RES | Op::RTI => unimplemented!(),
+            Op::RTI => {
+                if self.word & 0xfff != 0 {
+                    // invalid RTI if these bits are set
+                    s = format!(".FILL {:04X}", self.word);
+                }
+            }
+            Op::RES => unimplemented!(),
         }
         f.write_str(&s)
     }
