@@ -49,7 +49,6 @@ pub enum Hint {
 pub struct Instruction {
     pub word: u16,
     pub label: Option<String>,
-    pub hint: Option<Hint>,
 }
 
 pub struct Program {
@@ -59,13 +58,13 @@ pub struct Program {
     pub instructions: Vec<Instruction>,
     /// Symbol table, indexed by position in `instructions`
     pub symbols: HashMap<String, usize>,
-    /// Referenced symbols, indexed by position in `instructions`
-    pub refs: HashMap<usize, String>,
+    /// Assembler directive type hints
+    pub hints: HashMap<usize, Hint>,
 }
 
 impl Instruction {
-    pub fn new(word: u16, label: Option<String>, hint: Option<Hint>) -> Self {
-        Instruction { word, label, hint }
+    pub fn new(word: u16, label: Option<String>) -> Self {
+        Instruction { word, label }
     }
 }
 
@@ -75,13 +74,13 @@ impl<'p> Program {
         origin: u16,
         instructions: Vec<Instruction>,
         symbols: HashMap<String, usize>,
-        refs: HashMap<usize, String>,
+        hints: HashMap<usize, Hint>,
     ) -> Self {
         Program {
             origin,
             instructions,
             symbols,
-            refs,
+            hints,
         }
     }
 
@@ -274,23 +273,26 @@ impl fmt::Display for Program {
             if let Some(label) = self.lookup_symbol_by_address(iaddr) {
                 write!(f, "{} ", label)?;
             }
-            match self.instructions[iaddr].hint {
-                Some(Hint::Fill) => {
-                    writeln!(f, ".FILL {}", self.instructions[iaddr])?;
-                }
-                Some(Hint::Stringz) => {
-                    f.write_str(".STRINGZ \"")?;
-                    while self.instructions[iaddr].word != 0 {
-                        let b = (self.instructions[iaddr].word & 0xff) as u8;
-                        write!(f, "{}", b as char)?;
-                        iaddr += 1;
+
+            if let Some(hint) = self.hints.get(&iaddr) {
+                match hint {
+                    Hint::Fill => {
+                        writeln!(f, ".FILL {}", self.instructions[iaddr])?;
                     }
-                    writeln!(f, "\"")?;
+                    Hint::Stringz => {
+                        f.write_str(".STRINGZ \"")?;
+                        while self.instructions[iaddr].word != 0 {
+                            let b = (self.instructions[iaddr].word & 0xff) as u8;
+                            write!(f, "{}", b as char)?;
+                            iaddr += 1;
+                        }
+                        writeln!(f, "\"")?;
+                    }
                 }
-                None => {
-                    write!(f, "{}\n", self.instructions[iaddr])?;
-                }
+            } else {
+                write!(f, "{}\n", self.instructions[iaddr])?;
             }
+
             iaddr += 1;
         }
         writeln!(f, ".END")
