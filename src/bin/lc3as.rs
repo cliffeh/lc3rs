@@ -1,7 +1,7 @@
 use clap::Parser;
-use lc3::asm::{assemble_program, ParseError};
-use std::io::{stdin, stdout, Error, Read, Write};
+use lc3::asm::assemble_program;
 use std::path::PathBuf;
+use std::{error, io};
 use std::{fs, path};
 
 #[derive(Parser)]
@@ -26,141 +26,116 @@ struct Args {
     input: path::PathBuf,
 }
 
-// impl Args {
-//     fn get_input_output_symbols_filenames(&self) -> (PathBuf, PathBuf, PathBuf) {
-//         let infile = self.input.clone();
-//         let outfile = match &self.output {
-//             None => {
-//                 let mut path = self.input.clone();
-//                 path.set_extension(if self.dissasemble { "asm" } else { "obj" });
-//                 path
-//             }
-//             Some(path) => path.clone(),
-//         };
-//         let symfile = match &self.symbols {
-//             None => {
-//                 let mut path = self.input.clone();
-//                 path.set_extension("sym");
-//                 path
-//             }
-//             Some(path) => path.clone(),
-//         };
+impl Args {
+    fn get_assembly_source(&self) -> Result<String, io::Error> {
+        let mut input: Box<dyn io::Read> = if self.input == PathBuf::from("-") {
+            Box::new(io::stdin().lock()) as Box<dyn io::Read>
+        } else {
+            Box::new(fs::File::open(&self.input)?) as Box<dyn io::Read>
+        };
+        let mut buf = String::new();
+        input.read_to_string(&mut buf)?;
 
-//         (infile, outfile, symfile)
-//     }
-
-//     fn get_assembly_input_output_symbols(&self) -> (impl Read, impl Write, impl Write) {
-//         let filenames = self.get_input_output_symbols_filenames();
-//         let input = fs::File::open(&filenames.0)
-//             .expect(format!("unable to open input file: {}", filenames.0.display()).as_str());
-
-//         let output = if filenames.1 == PathBuf::from("-") {
-//             Box::new(stdout().lock()) as Box<dyn Write>
-//         } else {
-//             Box::new(fs::File::create(&filenames.1).expect(
-//                 format!("unable to create output file: {}", filenames.1.display()).as_str(),
-//             )) as Box<dyn Write>
-//         };
-
-//         let symbols = if filenames.2 == PathBuf::from("-") {
-//             Box::new(stdout().lock()) as Box<dyn Write>
-//         } else {
-//             Box::new(fs::File::create(&filenames.2).expect(
-//                 format!("unable to create symbol file: {}", filenames.2.display()).as_str(),
-//             )) as Box<dyn Write>
-//         };
-
-//         (input, output, symbols)
-//     }
-
-//     fn get_disassembly_input_output_symbols(&self) -> (impl Read, impl Write, impl Read) {
-//         let filenames = self.get_input_output_symbols_filenames();
-//         let input = fs::File::open(&filenames.0)
-//             .expect(format!("unable to open input file: {}", filenames.0.display()).as_str());
-
-//         let output = if filenames.1 == PathBuf::from("-") {
-//             Box::new(stdout().lock()) as Box<dyn Write>
-//         } else {
-//             Box::new(fs::File::create(&filenames.1).expect(
-//                 format!("unable to create output file: {}", filenames.1.display()).as_str(),
-//             )) as Box<dyn Write>
-//         };
-
-//         let symbols =
-//             if filenames.2 == PathBuf::from("-") {
-//                 Box::new(stdin().lock()) as Box<dyn Read>
-//             } else {
-//                 Box::new(fs::File::open(&filenames.2).expect(
-//                     format!("unable to open symbol file: {}", filenames.2.display()).as_str(),
-//                 )) as Box<dyn Read>
-//             };
-
-//         (input, output, symbols)
-//     }
-// }
-
-// fn assemble_program(
-//     input: &mut impl Read,
-//     output: &mut impl Write,
-//     symbols: &mut impl Write,
-// ) -> Result<(), Error> {
-//     let prog = assemble(input)?;
-
-//     // TODO do something with results?
-//     let _ = prog.write(output);
-//     let _ = prog.dump_symbols(symbols);
-
-//     Ok(())
-// }
-
-// fn disassemble_program(
-//     input: &mut impl Read,
-//     output: &mut impl Write,
-//     symbols: &mut impl Read, // TODO use me!
-// ) -> Result<(), Error> {
-//     let mut prog = Program::read(input)?;
-//     let _ = prog.load_symbols(symbols);
-
-//     write!(output, "{}", prog)?;
-
-//     Ok(())
-// }
-
-fn main() -> Result<(), ParseError> {
-   // let args = Args::parse();
-
-    // let source = fs::read_to_string(args.input).unwrap();
-
-    let mut source = String::new();
-    let _ = stdin().lock().read_to_string(&mut source);
-
-    // eprintln!("input: {}", input);
-
-    match assemble_program(&source) {
-        Ok(prog) => {
-            print!("{}", prog);
-            // let _ = prog.write(&mut stdout());
-        }
-        Err(e) => {
-            eprintln!("{}", e);
-        }
+        Ok(buf)
     }
 
-    
+    fn get_output_write(&self, ext: &str) -> Result<impl io::Write, io::Error> {
+        Ok(if let Some(path) = &self.output {
+            if *path == PathBuf::from("-") {
+                Box::new(io::stdout().lock()) as Box<dyn io::Write>
+            } else {
+                Box::new(fs::File::create(&path)?) as Box<dyn io::Write>
+            }
+        } else {
+            let mut path = self.input.clone();
+            path.set_extension(ext);
+            Box::new(fs::File::create(&path)?) as Box<dyn io::Write>
+        })
+    }
+
+    //     fn get_input_output_symbols_filenames(&self) -> (PathBuf, PathBuf, PathBuf) {
+    //         let infile = self.input.clone();
+    //         let outfile = match &self.output {
+    //             None => {
+    //                 let mut path = self.input.clone();
+    //                 path.set_extension(if self.dissasemble { "asm" } else { "obj" });
+    //                 path
+    //             }
+    //             Some(path) => path.clone(),
+    //         };
+    //         let symfile = match &self.symbols {
+    //             None => {
+    //                 let mut path = self.input.clone();
+    //                 path.set_extension("sym");
+    //                 path
+    //             }
+    //             Some(path) => path.clone(),
+    //         };
+
+    //         (infile, outfile, symfile)
+    //     }
+
+    //     fn get_assembly_input_output_symbols(&self) -> (impl Read, impl Write, impl Write) {
+    //         let filenames = self.get_input_output_symbols_filenames();
+    //         let input = fs::File::open(&filenames.0)
+    //             .expect(format!("unable to open input file: {}", filenames.0.display()).as_str());
+
+    //         let output = if filenames.1 == PathBuf::from("-") {
+    //             Box::new(stdout().lock()) as Box<dyn Write>
+    //         } else {
+    //             Box::new(fs::File::create(&filenames.1).expect(
+    //                 format!("unable to create output file: {}", filenames.1.display()).as_str(),
+    //             )) as Box<dyn Write>
+    //         };
+
+    //         let symbols = if filenames.2 == PathBuf::from("-") {
+    //             Box::new(stdout().lock()) as Box<dyn Write>
+    //         } else {
+    //             Box::new(fs::File::create(&filenames.2).expect(
+    //                 format!("unable to create symbol file: {}", filenames.2.display()).as_str(),
+    //             )) as Box<dyn Write>
+    //         };
+
+    //         (input, output, symbols)
+    //     }
+
+    //     fn get_disassembly_input_output_symbols(&self) -> (impl Read, impl Write, impl Read) {
+    //         let filenames = self.get_input_output_symbols_filenames();
+    //         let input = fs::File::open(&filenames.0)
+    //             .expect(format!("unable to open input file: {}", filenames.0.display()).as_str());
+
+    //         let output = if filenames.1 == PathBuf::from("-") {
+    //             Box::new(stdout().lock()) as Box<dyn Write>
+    //         } else {
+    //             Box::new(fs::File::create(&filenames.1).expect(
+    //                 format!("unable to create output file: {}", filenames.1.display()).as_str(),
+    //             )) as Box<dyn Write>
+    //         };
+
+    //         let symbols =
+    //             if filenames.2 == PathBuf::from("-") {
+    //                 Box::new(stdin().lock()) as Box<dyn Read>
+    //             } else {
+    //                 Box::new(fs::File::open(&filenames.2).expect(
+    //                     format!("unable to open symbol file: {}", filenames.2.display()).as_str(),
+    //                 )) as Box<dyn Read>
+    //             };
+
+    //         (input, output, symbols)
+    //     }
+}
+
+fn main() -> Result<(), Box<dyn error::Error>> {
+    let args = Args::parse();
+
+    if args.dissasemble {
+        todo!()
+    } else {
+        let source = args.get_assembly_source()?;
+        let prog = assemble_program(&source)?;
+        let mut output = args.get_output_write("obj")?;
+        prog.write(&mut output)?;
+    }
 
     Ok(())
-    // if args.debug {
-    //     let (infile, outfile, symfile) = args.get_input_output_symbols_filenames();
-    //     eprintln!("using input file: {}", infile.display());
-    //     eprintln!("using output file: {}", outfile.display());
-    //     eprintln!("using symbol file: {}", symfile.display());
-    // }
-
-    // if args.dissasemble {
-    //     let (mut input, mut output, mut symbols) = args.get_disassembly_input_output_symbols();
-    //     disassemble_program(&mut input, &mut output, &mut symbols)
-    // } else {
-    //     let (mut input, mut output, mut symbols) = args.get_assembly_input_output_symbols();
-    //     assemble_program(&mut input, &mut output, &mut symbols)
-    // }
 }
