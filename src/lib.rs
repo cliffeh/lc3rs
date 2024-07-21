@@ -280,7 +280,7 @@ impl fmt::Display for Program {
                         if let Some(label) = &self.instructions[iaddr].label {
                             writeln!(f, ".FILL {}", label)?;
                         } else {
-                            writeln!(f, ".FILL {:04X}", self.instructions[iaddr].word)?;
+                            writeln!(f, ".FILL x{:04X}", self.instructions[iaddr].word)?;
                         }
                     }
                     Hint::Stringz => {
@@ -316,10 +316,10 @@ impl fmt::Display for Instruction {
                 )
                 .as_str();
                 if (self.word & (1 << 5)) != 0 {
-                    s += format!("#{}", (self.word & 0x1f) as i16).as_str();
+                    s += format!("#{}", sign_extend(self.word & 0x1f, 5) as i16).as_str();
                 } else if self.word & (0b11 << 3) != 0 {
                     // invalid ADD|AND if these bits are set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 } else {
                     s += format!("R{}", self.word & 0b111).as_str();
                 }
@@ -327,7 +327,7 @@ impl fmt::Display for Instruction {
             Op::BR => {
                 if self.word & (0b111 << 9) == 0 {
                     // invalid BR if these bits aren't set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 }
                 if self.word & (1 << 11) != 0 {
                     s += "n";
@@ -346,7 +346,7 @@ impl fmt::Display for Instruction {
             Op::JMP => {
                 if self.word & ((0b111 << 9) | (0b11111)) != 0 {
                     // invalid JMP|RET if these bits are set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 } else {
                     let r1 = (self.word >> 6) & 0b111;
                     if r1 == 7 {
@@ -379,14 +379,14 @@ impl fmt::Display for Instruction {
                     " R{}, R{}, #{}",
                     (self.word >> 9) & 0b111,
                     (self.word >> 6) & 0b111,
-                    (self.word & 0x3ff) as i16
+                    sign_extend(self.word & 0x3ff, 6) as i16
                 )
                 .as_str();
             }
             Op::NOT => {
-                if self.word & 0b111111 != 0 {
+                if self.word & 0b111111 == 0 {
                     // invalid NOT if these bits aren't set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 } else {
                     s += format!(
                         " R{}, R{}",
@@ -399,7 +399,7 @@ impl fmt::Display for Instruction {
             Op::TRAP => {
                 if self.word & (0b1111 << 8) != 0 {
                     // invalid TRAP if these bits are set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 } else {
                     let trapvect8 = self.word & 0xff;
                     if let Ok(trap) = Trap::try_from(trapvect8) {
@@ -412,7 +412,7 @@ impl fmt::Display for Instruction {
             Op::RTI => {
                 if self.word & 0xfff != 0 {
                     // invalid RTI if these bits are set
-                    s = format!(".FILL {:04X}", self.word);
+                    s = format!(".FILL x{:04X}", self.word);
                 }
             }
             Op::RES => unimplemented!(),
