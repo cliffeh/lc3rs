@@ -1,16 +1,16 @@
-use lc3::{assemble, Program};
+use lc3::asm::assemble_program;
+use lc3::Program;
 use rstest::rstest;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::{fs, path::PathBuf};
 
 #[rstest]
 fn test_assemble(#[files("examples/*.asm")] infile: PathBuf) {
+    let source = fs::read_to_string(infile).unwrap();
+    let actual = assemble_program(&source).unwrap();
+
     let mut outfile = infile.clone();
     outfile.set_extension("obj");
-
-    let mut input = fs::File::open(infile).unwrap();
-    let prog = assemble(&mut input).unwrap();
-
     let mut output = fs::File::open(outfile).unwrap();
     let expected = Program::read(&mut output).unwrap();
 
