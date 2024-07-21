@@ -139,6 +139,7 @@ fn main() -> Result<(), ParseError> {
     match assemble_program(&source) {
         Ok(prog) => {
             print!("{}", prog);
+            // let _ = prog.write(&mut stdout());
         }
         Err(e) => {
             eprintln!("{}", e);

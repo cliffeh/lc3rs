@@ -126,10 +126,10 @@ pub enum Token {
         Ok::<u16, LexError>(value as u16)
     })]
     NUMLIT(u16),
-    #[regex(r#""(?:[^"]|\\")*""#, callback = |lex| {
-        lex.slice()[1..lex.slice().len()-1].as_bytes().into_iter().map(|b| *b as u16).collect::<Vec<u16>>()
-    })]
-    STRLIT(Vec<u16>),
+    /// Returns the original unescaped string as a byte vector.
+    /// TODO write a test for this
+    #[regex(r#""(?:[^"]|\\")*""#, |lex| String::from(&lex.slice()[1..lex.slice().len()-1]))]
+    STRLIT(String),
 
     /* labels */
     // NB we're going to disallow a label beginning with `_` so we can use it for assembler directive hints
@@ -240,12 +240,10 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
             }
             Token::STRINGZ => {
                 prog.hints.insert(prog.instructions.len(), Hint::Stringz);
-                let strlit = expect_token!(lexer, Token::STRLIT(s) => s)?;
-                prog.instructions.push(Instruction::new(strlit[0], None));
-                for c in strlit[1..].into_iter() {
-                    prog.instructions.push(Instruction::new(*c, None));
+                let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
+                for b in unescape(&escaped).as_bytes() {
+                    prog.instructions.push(Instruction::new(*b as u16, None));
                 }
-                // null terminate
                 prog.instructions.push(Instruction::new(0, None));
             }
             _ => {
@@ -416,8 +414,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
 
 #[derive(Error, Clone, Debug, Default, PartialEq)]
 pub enum LexError {
-    #[error("error parsing u16 from {0}")]
+    #[error("error parsing u16: {0}")]
     ParseIntError(#[from] ParseIntError),
+
+    #[error("error unescaping string literal: {0}")]
+    UnescapeError(String),
 
     #[default]
     #[error("unknown token")]
@@ -435,3 +436,81 @@ pub enum ParseError {
     #[error("symbol error: {0}")]
     SymbolError(String),
 }
+
+/* utilities */
+
+/// Unescapes the input string.
+/// // TODO write a test
+fn unescape(input: &str) -> String {
+    // NB There are a handful of crates that do this, none of which actually escapes everything
+    // we need escaped (notably, ANSI escapes like `\e[`). `snailquote` handles these, but also
+    // has its own agenda about escaping things inside single quotes and suchlike.
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '\'' => result.push('\''),
+                    '"' => result.push('"'),
+                    '0' => result.push('\0'),
+                    'x' => {
+                        // Handle hexadecimal escape sequence (e.g., \x41)
+                        let mut hex = String::new();
+                        if let Some(h1) = chars.next() {
+                            hex.push(h1);
+                        }
+                        if let Some(h2) = chars.next() {
+                            hex.push(h2);
+                        }
+                        if let Ok(value) = u8::from_str_radix(&hex, 16) {
+                            result.push(value as char);
+                        }
+                    }
+                    'u' => {
+                        // Handle Unicode escape sequence (e.g., \u{1F600})
+                        if chars.next() == Some('{') {
+                            let mut hex = String::new();
+                            while let Some(h) = chars.next() {
+                                if h == '}' {
+                                    break;
+                                }
+                                hex.push(h);
+                            }
+                            if let Ok(value) = u32::from_str_radix(&hex, 16) {
+                                if let Some(ch) = std::char::from_u32(value) {
+                                    result.push(ch);
+                                }
+                            }
+                        }
+                    }
+                    'e' => {
+                        // Handle ANSI escape sequence (e.g., \e[31m)
+                        result.push('\x1B');
+                        if let Some('[') = chars.peek() {
+                            result.push(chars.next().unwrap());
+                            while let Some(&next) = chars.peek() {
+                                result.push(next);
+                                chars.next();
+                                if next.is_alphabetic() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => result.push(next),
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+

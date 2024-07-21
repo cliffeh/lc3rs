@@ -19,7 +19,6 @@ name = "lc3as"
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
 ctrlc = "3.4.4"
-lalrpop-util = { version = "0.20.2", features = ["lexer", "unicode"] }
 logos = "0.14.0"
 rstest = "0.21.0"
 termios = "0.3.3"

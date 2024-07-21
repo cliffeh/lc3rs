@@ -190,13 +190,19 @@ impl<'p> Program {
                         // for operations we want the offset of the label relative to the incremented PC
                         let op = Op::from(self.instructions[iaddr].word >> 12);
                         match op {
-                            Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => { // PCoffset9
-                                self.instructions[iaddr].word |= ((saddr as isize - iaddr as isize - 1) as u16) & 0x1ff;
+                            Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
+                                // PCoffset9
+                                self.instructions[iaddr].word |=
+                                    ((saddr as isize - iaddr as isize - 1) as u16) & 0x1ff;
                             }
-                            Op::JSR => { // PCoffset11
-                                self.instructions[iaddr].word |= ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
+                            Op::JSR => {
+                                // PCoffset11
+                                self.instructions[iaddr].word |=
+                                    ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
                             }
-                            _ => { return Err(format!("unexpected symbol on {} operation", op)); }
+                            _ => {
+                                return Err(format!("unexpected symbol on {} operation", op));
+                            }
                         }
                     }
                 } else {
@@ -256,6 +262,30 @@ pub fn sign_extend(x: u16, count: usize) -> u16 {
     } else {
         x
     }
+}
+
+/// Escapes the input character.
+/// // TODO write a test
+fn escape(c: char) -> String {
+    let mut result = String::new();
+
+    match c {
+        '\n' => result.push_str("\\n"),
+        '\t' => result.push_str("\\t"),
+        '\r' => result.push_str("\\r"),
+        '\\' => result.push_str("\\\\"),
+        '\'' => result.push_str("\\'"),
+        '\"' => result.push_str("\\\""),
+        '\0' => result.push_str("\\0"),
+        '\x1B' => result.push_str("\\e"), // ANSI escape character
+        _ if c.is_control() => {
+            // Handle other control characters with hexadecimal escape sequence
+            result.push_str(&format!("\\x{:02X}", c as u8));
+        }
+        _ => result.push(c),
+    }
+
+    result
 }
 
 /* formatting */
@@ -319,7 +349,7 @@ impl fmt::Display for Program {
                         f.write_str(".STRINGZ \"")?;
                         while self.instructions[iaddr].word != 0 {
                             let b = (self.instructions[iaddr].word & 0xff) as u8;
-                            write!(f, "{}", b as char)?;
+                            write!(f, "{}", escape(b as char))?;
                             iaddr += 1;
                         }
                         writeln!(f, "\"")?;
