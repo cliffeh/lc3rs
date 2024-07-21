@@ -175,6 +175,38 @@ impl<'p> Program {
         None
     }
 
+    /// Resolves symbols to their actual addresses and populates instructions accordingly.
+    pub fn resolve_symbols(&mut self) -> Result<(), String> {
+        // for each instruction
+        for iaddr in 0..self.instructions.len() {
+            // if that instruction references a label
+            if let Some(label) = &self.instructions[iaddr].label {
+                // get the address of that label
+                if let Some(&saddr) = &self.symbols.get(label) {
+                    if let Some(Hint::Fill) = self.hints.get(&iaddr) {
+                        // for .FILL we want the "raw" address of the label relative to the program's origin
+                        self.instructions[iaddr].word = self.origin.wrapping_add(saddr as u16);
+                    } else {
+                        // for operations we want the offset of the label relative to the incremented PC
+                        let op = Op::from(self.instructions[iaddr].word >> 12);
+                        match op {
+                            Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => { // PCoffset9
+                                self.instructions[iaddr].word |= ((saddr as isize - iaddr as isize - 1) as u16) & 0x1ff;
+                            }
+                            Op::JSR => { // PCoffset11
+                                self.instructions[iaddr].word |= ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
+                            }
+                            _ => { return Err(format!("unexpected symbol on {} operation", op)); }
+                        }
+                    }
+                } else {
+                    return Err(format!("undefined symbol: {}", label));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Writes the program out to `w`.
     pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
         let mut n: usize = 0;

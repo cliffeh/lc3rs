@@ -148,23 +148,43 @@ macro_rules! expect_token {
     ($lexer:expr) => {
         match $lexer.next() {
             Some(Ok(result)) => Ok(result),
-            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
             None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
     ($lexer:expr, $expected:pat) => {
         match $lexer.next() {
             Some(Ok($expected)) => Ok(()),
-            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(unexpected, $lexer.extras.0 + 1, $lexer.slice().to_string())),
-            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(
+                unexpected,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
             None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
     ($lexer:expr, $expected:pat => $result:expr) => {
         match $lexer.next() {
             Some(Ok($expected)) => Ok($result),
-            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(unexpected, $lexer.extras.0 + 1, $lexer.slice().to_string())),
-            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(
+                unexpected,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
             None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
@@ -172,8 +192,10 @@ macro_rules! expect_token {
 
 /// Parse LC3 source assembly into a binary program and resolve all symbol references.
 pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
-    let prog = parse_program(source)?;
-    // TODO resolve symbols
+    let mut prog = parse_program(source)?;
+    if let Err(e) = prog.resolve_symbols() {
+        return Err(ParseError::SymbolError(e));
+    }
     Ok(prog)
 }
 
@@ -192,7 +214,12 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
                 break;
             }
             Token::LABEL(label) => {
-                // TODO check for duplicate symbols
+                if let Some(_) = prog.symbols.get(&label) {
+                    return Err(ParseError::SymbolError(format!(
+                        "duplicate symbol: {}",
+                        label
+                    )));
+                }
                 prog.symbols.insert(label, prog.instructions.len());
             }
             /* assembler directives */
@@ -200,11 +227,15 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
                 prog.hints.insert(prog.instructions.len(), Hint::Fill);
                 let token = expect_token!(lexer)?;
                 match token {
-                    Token::NUMLIT(word) => prog
-                        .instructions
-                        .push(Instruction::new(word.wrapping_add(prog.origin), None)),
+                    Token::NUMLIT(word) => prog.instructions.push(Instruction::new(word, None)),
                     Token::LABEL(label) => prog.instructions.push(Instruction::new(0, Some(label))),
-                    _ => return Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0 + 1,
+                            lexer.slice().to_string(),
+                        ))
+                    }
                 }
             }
             Token::STRINGZ => {
@@ -234,7 +265,7 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
 /// ```rust
 /// use lc3::{Instruction, Op, Trap};
 /// use lc3::asm::parse_instruction;
-/// 
+///
 /// assert_eq!()
 ///
 /// /* operations */
@@ -291,7 +322,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                     op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
                     None,
                 )),
-                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
             }
         }
         Token::BR(op) => {
@@ -299,7 +334,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             match token {
                 Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None)),
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
             }
         }
         Token::JMP(op) | Token::JSRR(op) => {
@@ -312,7 +351,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             match token {
                 Token::NUMLIT(pcoffset11) => Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None)),
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
             }
         }
         Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
@@ -324,7 +367,11 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                     Ok(Instruction::new(op | r1 << 9 | (pcoffset9 & 0x1ff), None))
                 }
                 Token::LABEL(label) => Ok(Instruction::new(op | r1 << 9, Some(label))),
-                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
             }
         }
         Token::LDR(op) | Token::STR(op) => {
@@ -357,10 +404,13 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         | Token::IN(op)
         | Token::PUTSP(op)
         | Token::HALT(op) => Ok(Instruction::new(op, None)),
-        _ => Err(ParseError::UnexpectedToken(la, lexer.extras.0 + 1, lexer.slice().to_string())),
+        _ => Err(ParseError::UnexpectedToken(
+            la,
+            lexer.extras.0 + 1,
+            lexer.slice().to_string(),
+        )),
     }
 }
-
 
 /* errors */
 
@@ -382,4 +432,6 @@ pub enum ParseError {
     UnexpectedToken(Token, u32, String),
     #[error("unexpected EOF on line {0}")]
     UnexpectedEOF(u32),
+    #[error("symbol error: {0}")]
+    SymbolError(String),
 }

@@ -1,5 +1,5 @@
 use clap::Parser;
-use lc3::asm::{parse_program, ParseError};
+use lc3::asm::{assemble_program, ParseError};
 use std::io::{stdin, stdout, Error, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
@@ -136,7 +136,7 @@ fn main() -> Result<(), ParseError> {
 
     // eprintln!("input: {}", input);
 
-    match parse_program(&source) {
+    match assemble_program(&source) {
         Ok(prog) => {
             print!("{}", prog);
         }
