@@ -1,11 +1,12 @@
 use crate::{Hint, Instruction, Op, Program, Trap};
-use logos::{Lexer, Logos};
+use logos::{Lexer, Logos, Skip};
 use std::num::ParseIntError;
 use thiserror::Error;
 
 #[derive(Logos, Clone, Debug, PartialEq)]
-#[logos(error = ParseError)]
-#[logos(skip r"([ \t\r\n]+|;.*)")] // ignore whitespace and comments
+#[logos(error = LexError)]
+#[logos(extras = (u32,))] // line number
+#[logos(skip r"([ \t\r]+|;.*)")] // ignore whitespace and comments
 pub enum Token {
     /* operations */
     /// ```
@@ -122,7 +123,7 @@ pub enum Token {
     #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]+", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
         let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
-        Ok::<u16, ParseError>(value as u16)
+        Ok::<u16, LexError>(value as u16)
     })]
     NUMLIT(u16),
     #[regex(r#""(?:[^"]|\\")*""#, callback = |lex| {
@@ -138,29 +139,33 @@ pub enum Token {
     /* punctuation */
     #[token(",")]
     COMMA,
+
+    #[token("\n", |lex| lex.extras.0 += 1; Skip)]
+    NEWLINE,
 }
 
 macro_rules! expect_token {
     ($lexer:expr) => {
         match $lexer.next() {
-            Some(result) => result,
-            None => Err(ParseError::UnexpectedEOF),
+            Some(Ok(result)) => Ok(result),
+            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
     ($lexer:expr, $expected:pat) => {
         match $lexer.next() {
             Some(Ok($expected)) => Ok(()),
-            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken { found: unexpected }),
-            Some(Err(e)) => Err(e),
-            None => Err(ParseError::UnexpectedEOF),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(unexpected, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
     ($lexer:expr, $expected:pat => $result:expr) => {
         match $lexer.next() {
             Some(Ok($expected)) => Ok($result),
-            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken { found: unexpected }),
-            Some(Err(e)) => Err(e),
-            None => Err(ParseError::UnexpectedEOF),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(unexpected, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            Some(Err(e)) => Err(ParseError::LexError(e, $lexer.extras.0 + 1, $lexer.slice().to_string())),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
         }
     };
 }
@@ -199,7 +204,7 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
                         .instructions
                         .push(Instruction::new(word.wrapping_add(prog.origin), None)),
                     Token::LABEL(label) => prog.instructions.push(Instruction::new(0, Some(label))),
-                    _ => return Err(ParseError::UnexpectedToken { found: token }),
+                    _ => return Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
                 }
             }
             Token::STRINGZ => {
@@ -229,6 +234,8 @@ pub fn parse_program(source: &str) -> Result<Program, ParseError> {
 /// ```rust
 /// use lc3::{Instruction, Op, Trap};
 /// use lc3::asm::parse_instruction;
+/// 
+/// assert_eq!()
 ///
 /// /* operations */
 /// assert_eq!(parse_instruction("ADD R0, R1, R2"), Ok(Instruction::new((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
@@ -284,7 +291,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                     op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
                     None,
                 )),
-                _ => Err(ParseError::UnexpectedToken { found: token }),
+                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
             }
         }
         Token::BR(op) => {
@@ -292,7 +299,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             match token {
                 Token::NUMLIT(pcoffset9) => Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None)),
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                _ => Err(ParseError::UnexpectedToken { found: token }),
+                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
             }
         }
         Token::JMP(op) | Token::JSRR(op) => {
@@ -305,7 +312,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
             match token {
                 Token::NUMLIT(pcoffset11) => Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None)),
                 Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                _ => Err(ParseError::UnexpectedToken { found: token }),
+                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
             }
         }
         Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
@@ -317,7 +324,7 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
                     Ok(Instruction::new(op | r1 << 9 | (pcoffset9 & 0x1ff), None))
                 }
                 Token::LABEL(label) => Ok(Instruction::new(op | r1 << 9, Some(label))),
-                _ => Err(ParseError::UnexpectedToken { found: token }),
+                _ => Err(ParseError::UnexpectedToken(token, lexer.extras.0 + 1, lexer.slice().to_string())),
             }
         }
         Token::LDR(op) | Token::STR(op) => {
@@ -350,19 +357,29 @@ fn parse_instruction_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instructi
         | Token::IN(op)
         | Token::PUTSP(op)
         | Token::HALT(op) => Ok(Instruction::new(op, None)),
-        _ => Err(ParseError::UnexpectedToken { found: la }),
+        _ => Err(ParseError::UnexpectedToken(la, lexer.extras.0 + 1, lexer.slice().to_string())),
     }
 }
 
+
+/* errors */
+
 #[derive(Error, Clone, Debug, Default, PartialEq)]
-pub enum ParseError {
-    #[error("unexpected token: {found:?}")]
-    UnexpectedToken { found: Token },
-    #[error("unexpected EOF")]
-    UnexpectedEOF,
+pub enum LexError {
     #[error("error parsing u16 from {0}")]
     ParseIntError(#[from] ParseIntError),
+
     #[default]
-    #[error("unknown parse error")]
-    Unknown,
+    #[error("unknown token")]
+    UnknownToken,
+}
+
+#[derive(Error, Clone, Debug, PartialEq)]
+pub enum ParseError {
+    #[error("lex error on line {1}: {0} ({2})")]
+    LexError(LexError, u32, String),
+    #[error("unexpected token on line {1}: {0:?} ({2})")]
+    UnexpectedToken(Token, u32, String),
+    #[error("unexpected EOF on line {0}")]
+    UnexpectedEOF(u32),
 }

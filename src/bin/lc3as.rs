@@ -136,9 +136,16 @@ fn main() -> Result<(), ParseError> {
 
     // eprintln!("input: {}", input);
 
-    let prog = parse_program(&source)?;
+    match parse_program(&source) {
+        Ok(prog) => {
+            print!("{}", prog);
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+        }
+    }
 
-    print!("{}", prog);
+    
 
     Ok(())
     // if args.debug {
