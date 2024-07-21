@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 pub mod asm;
+pub mod sym;
 // pub mod vm;
 use std::fmt;
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
@@ -39,7 +40,7 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Hint {
     Fill,
     Stringz,
