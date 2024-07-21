@@ -120,7 +120,7 @@ pub enum Token {
     END, /* end of program */
 
     /* literals */
-    #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]+", callback = |lex| {
+    #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]{1,4}", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
         let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
         Ok::<u16, LexError>(value as u16)
