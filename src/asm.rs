@@ -1,4 +1,4 @@
-use crate::{Hint, Instruction, Op, Program, Trap};
+use crate::{sym::SymbolError, Hint, Instruction, Op, Program, Trap};
 use logos::{Lexer, Logos, Skip};
 use std::num::ParseIntError;
 use thiserror::Error;
@@ -215,17 +215,11 @@ impl Program {
                     break;
                 }
                 Token::LABEL(label) => {
-                    if let Some(_) = prog.symbols.get(&label) {
-                        return Err(ParseError::SymbolError(format!(
-                            "duplicate symbol: {}",
-                            label
-                        )));
-                    }
-                    prog.symbols.insert(label, prog.instructions.len());
+                    prog.symtab.insert_symbol(label, prog.instructions.len())?;
                 }
                 /* assembler directives */
                 Token::FILL => {
-                    prog.hints.insert(prog.instructions.len(), Hint::Fill);
+                    prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
                     let token = expect_token!(lexer)?;
                     match token {
                         Token::NUMLIT(word) => prog.instructions.push(Instruction::new(word, None)),
@@ -242,7 +236,7 @@ impl Program {
                     }
                 }
                 Token::STRINGZ => {
-                    prog.hints.insert(prog.instructions.len(), Hint::Stringz);
+                    prog.symtab.insert_hint(prog.instructions.len(), Hint::Stringz);
                     let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
                     for b in unescape(&escaped).as_bytes() {
                         prog.instructions.push(Instruction::new(*b as u16, None));
@@ -441,7 +435,7 @@ pub enum ParseError {
     #[error("unexpected EOF on line {0}")]
     UnexpectedEOF(u32),
     #[error("symbol error: {0}")]
-    SymbolError(String),
+    SymbolError(#[from] SymbolError),
 }
 
 /* utilities */

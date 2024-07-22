@@ -4,6 +4,8 @@ pub mod asm;
 pub mod sym;
 // pub mod vm;
 use std::fmt;
+
+use sym::{SymbolError, SymbolTable};
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;
@@ -54,13 +56,11 @@ pub struct Instruction {
 
 pub struct Program {
     /// Origin address of the program
-    pub origin: u16,
+    origin: u16,
     /// List of instructions that comprise the program
-    pub instructions: Vec<Instruction>,
-    /// Symbol table, indexed by position in `instructions`
-    pub symbols: HashMap<String, usize>,
-    /// Assembler directive type hints
-    pub hints: HashMap<usize, Hint>,
+    instructions: Vec<Instruction>,
+    /// Symbol table, containing addresses of symbols and assembler directive hints 
+    symtab: SymbolTable,
 }
 
 impl Instruction {
@@ -74,117 +74,24 @@ impl<'p> Program {
     pub fn new(
         origin: u16,
         instructions: Vec<Instruction>,
-        symbols: HashMap<String, usize>,
-        hints: HashMap<usize, Hint>,
+        symtab: SymbolTable
     ) -> Self {
         Program {
             origin,
             instructions,
-            symbols,
-            hints,
+            symtab,
         }
-    }
-
-    /// Dumps the symbol table for this program. The format is one symbol per line,
-    /// relative to `self.orig` sorted in address order.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    ///
-    /// let mut prog = Program::default();
-    /// prog.orig = 0x3000;
-    /// prog.syms.insert(String::from("foo"), 0x20);
-    /// prog.syms.insert(String::from("bar"), 0x1200);
-    ///
-    /// let mut buf: Vec<u8> = vec![];
-    /// prog.dump_symbols(&mut buf);
-    ///
-    /// let mut s = String::from_utf8(buf).unwrap();
-    /// let mut actual = s.split("\n");
-    ///
-    /// assert_eq!(actual.next().unwrap(), "x3020 foo");
-    /// assert_eq!(actual.next().unwrap(), "x4200 bar");
-    /// ```
-    pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
-        let mut n: usize = 0;
-        let mut symvec: Vec<(&String, &usize)> = self.symbols.iter().collect();
-        symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
-        for (sym, saddr) in symvec {
-            n += w.write(format!("x{:04x} {}\n", (*saddr as u16) + self.origin, sym).as_bytes())?;
-        }
-        Ok(n)
-    }
-
-    /// Loads the symbol table for this program, per the format specified in `dump_symbols()`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let mut br = BufReader::new("x3020 foo x1,x2\nx4200 bar".as_bytes());
-    /// let _ = prog.load_symbols(&mut br);
-    ///
-    /// assert_eq!(prog.syms.get("foo").unwrap(), &0x3020u16);
-    /// assert_eq!(prog.syms.get("bar").unwrap(), &0x4200u16);
-    /// ```
-    pub fn load_symbols(&mut self, r: &mut dyn Read) -> Result<(), Error> {
-        for res in BufReader::new(r).lines().into_iter() {
-            let line = res.unwrap();
-            let mut split = line.split(" ").into_iter();
-            let s = &split.next().unwrap()[1..];
-
-            let addr = usize::from_str_radix(&s, 16).unwrap();
-            let symbol = String::from(split.next().unwrap());
-
-            self.symbols.insert(symbol.clone(), addr);
-        }
-
-        Ok(())
-    }
-
-    /// Does a reverse lookup of a symbol, given its address.
-    ///
-    /// Returns Option<u16>, as the address passed in might not reference a symbol
-    /// (i.e., might be intended as a literal).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let mut br = BufReader::new("x3020 foo\nx4200 bar".as_bytes());
-    /// let _ = prog.load_symbols(&mut br);
-    ///
-    /// assert_eq!(prog.lookup_symbol_by_address(0x3020).unwrap(), &"foo".to_string());
-    /// assert_eq!(prog.lookup_symbol_by_address(0x4200).unwrap(), &"bar".to_string());
-    /// ```
-    pub fn lookup_symbol_by_address(&self, addr: usize) -> Option<&String> {
-        for (symbol, saddr) in self.symbols.iter() {
-            if *saddr == addr {
-                return Some(symbol);
-            }
-        }
-        None
     }
 
     /// Resolves symbols to their actual addresses and populates instructions accordingly.
-    pub fn resolve_symbols(&mut self) -> Result<(), String> {
+    pub fn resolve_symbols(&mut self) -> Result<(), SymbolError> {
         // for each instruction
         for iaddr in 0..self.instructions.len() {
             // if that instruction references a label
             if let Some(label) = &self.instructions[iaddr].label {
                 // get the address of that label
-                if let Some(&saddr) = &self.symbols.get(label) {
-                    if let Some(Hint::Fill) = self.hints.get(&iaddr) {
+                if let Some(&saddr) = &self.symtab.get_symbol_address(label)? {
+                    if let Some(Hint::Fill) = self.symtab.get_hint(&iaddr) {
                         // for .FILL we want the "raw" address of the label relative to the program's origin
                         self.instructions[iaddr].word = self.origin.wrapping_add(saddr as u16);
                     } else {
@@ -202,12 +109,10 @@ impl<'p> Program {
                                     ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
                             }
                             _ => {
-                                return Err(format!("unexpected symbol on {} operation", op));
+                                return Err(SymbolError::UnexpectedSymbol(format!("{} doesn't take a symbol argument", op)));
                             }
                         }
                     }
-                } else {
-                    return Err(format!("undefined symbol: {}", label));
                 }
             }
         }
@@ -227,7 +132,7 @@ impl<'p> Program {
 
 impl Default for Program {
     fn default() -> Self {
-        Program::new(0x3000, vec![], HashMap::new(), HashMap::new())
+        Program::new(0x3000, vec![], SymbolTable::default())
     }
 }
 
@@ -342,11 +247,11 @@ impl fmt::Display for Program {
 
         let mut iaddr = 0;
         while iaddr < self.instructions.len() {
-            if let Some(label) = self.lookup_symbol_by_address(iaddr) {
+            if let Some(label) = self.symtab.lookup_symbol_by_address(iaddr) {
                 write!(f, "{} ", label)?;
             }
 
-            if let Some(hint) = self.hints.get(&iaddr) {
+            if let Some(hint) = self.symtab.get_hint(&iaddr) {
                 match hint {
                     Hint::Fill => {
                         if let Some(label) = &self.instructions[iaddr].label {

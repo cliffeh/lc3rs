@@ -130,6 +130,41 @@ impl SymbolTable {
 
         Ok(SymbolTable::new(symbols, hints))
     }
+
+    pub fn insert_symbol(&mut self, label: String, addr: usize) -> Result<Option<usize>, SymbolError> {
+        match self.symbols.get(&label) {
+            Some(_) => Err(SymbolError::DuplicateSymbol(label)),
+            None => Ok(self.symbols.insert(label, addr))
+        }
+        
+    }
+
+    pub fn get_symbol_address(&self, label: &String) -> Result<Option<&usize>, SymbolError> {
+        if let Some(addr) = self.symbols.get(label) {
+            Ok(Some(addr))
+        } else {
+            Err(SymbolError::UndefinedSymbol(label.into()))
+        }
+    }
+
+    pub fn insert_hint(&mut self, addr: usize, hint: Hint) -> Option<Hint> {
+        // TODO check for duplicate hints
+        self.hints.insert(addr, hint)
+    }
+
+    pub fn get_hint(&self, addr: &usize) -> Option<&Hint> {
+        self.hints.get(addr)
+    }
+
+    /// Does a reverse lookup of a symbol, given its address
+    pub fn lookup_symbol_by_address(&self, addr: usize) -> Option<&String> {
+        for (symbol, saddr) in self.symbols.iter() {
+            if *saddr == addr {
+                return Some(symbol);
+            }
+        }
+        None
+    }
 }
 
 impl Default for SymbolTable {
@@ -174,4 +209,16 @@ pub enum ParseError {
 
     #[error("unexpected EOF on line {0}")]
     UnexpectedEOF(u32),
+}
+
+#[derive(Error, Clone, Debug, PartialEq)]
+pub enum SymbolError {
+    #[error("duplicate symbol: {0}")]
+    DuplicateSymbol(String),
+
+    #[error("undefined symbol: {0}")]
+    UndefinedSymbol(String),
+
+    #[error("unexpected symbol: {0}")]
+    UnexpectedSymbol(String),
 }
