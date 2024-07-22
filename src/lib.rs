@@ -327,6 +327,15 @@ impl fmt::Display for Trap {
     }
 }
 
+impl fmt::Display for Hint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Hint::Fill => f.write_str("_FILL"),
+            Hint::Stringz => f.write_str("_STRINGZ"),
+        }
+    }
+}
+
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, ".ORIG x{:04X}", self.origin)?;

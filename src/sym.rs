@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::ParseIntError};
+use std::{collections::HashMap, fmt::Display, num::ParseIntError};
 
 use logos::{Logos, Skip};
 use thiserror::Error;
@@ -13,15 +13,15 @@ pub enum Token {
     #[regex(r"[xX][0-9a-fA-F]{1,4}", |lex| u16::from_str_radix(&lex.slice()[1..], 16))]
     Addr(u16),
 
-    // NB we're going to disallow a label beginning with `_` so we can use it for assembler directive hints
+    // NB disallow labels beginning with `_` so they can be used for assembler directive hints
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
     Label(String),
 
-    #[token("_FILL")]
-    HintFill,
+    #[token("_FILL", |_| Hint::Fill)]
+    HintFill(Hint),
 
-    #[token("_STRINGZ")]
-    HintStringz,
+    #[token("_STRINGZ", |_| Hint::Stringz)]
+    HintStringz(Hint),
 
     #[token("\n", |lex| lex.extras.0 += 1; Skip)]
     NEWLINE,
@@ -79,14 +79,48 @@ pub struct SymbolTable {
 }
 
 // format: ADDR (SYMBOL|HINT)
-fn load_symbol_table(source: &str) -> Result<SymbolTable, LexError> {
-    let symbols: HashMap<String, usize> = HashMap::new();
-    let hints: HashMap<usize, Hint> = HashMap::new();
+fn load_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
+    let mut symbols: HashMap<String, usize> = HashMap::new();
+    let mut hints: HashMap<usize, Hint> = HashMap::new();
 
     let mut lexer = Token::lexer(source);
 
     while let Some(res) = lexer.next() {
-        
+        match res {
+            Ok(Token::Addr(addr)) => {
+                let token = expect_token!(lexer)?;
+                match token {
+                    Token::Label(label) => {
+                        // TODO check for dupes
+                        symbols.insert(label, addr.into());
+                    }
+                    Token::HintFill(hint) | Token::HintStringz(hint) => {
+                        hints.insert(addr.into(), hint);
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0,
+                            lexer.slice().into(),
+                        ));
+                    }
+                }
+            }
+            Ok(token) => {
+                return Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ));
+            }
+            Err(e) => {
+                return Err(ParseError::LexError(
+                    e,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ))
+            }
+        }
     }
 
     Ok(SymbolTable::new(symbols, hints))
@@ -103,6 +137,22 @@ impl Default for SymbolTable {
         SymbolTable::new(HashMap::new(), HashMap::new())
     }
 }
+
+/* formatting */
+
+impl Display for SymbolTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (symbol, addr) in self.symbols.iter() {
+            writeln!(f, "x{addr:04x} {symbol}")?;
+        }
+        for (addr, hint) in self.hints.iter() {
+            writeln!(f, "x{addr:04x} {hint}")?;
+        }
+        Ok(())
+    }
+}
+
+/* errors */
 
 #[derive(Error, Clone, Debug, Default, PartialEq)]
 pub enum LexError {
