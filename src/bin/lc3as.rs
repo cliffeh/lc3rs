@@ -1,5 +1,5 @@
 use clap::Parser;
-use lc3::asm::assemble_program;
+use lc3::Program;
 use std::path::PathBuf;
 use std::{error, io};
 use std::{fs, path};
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         todo!()
     } else {
         let source = args.get_assembly_source()?;
-        let prog = assemble_program(&source)?;
+        let prog = Program::assemble(&source)?;
         let mut output = args.get_output_write("obj")?;
         prog.write(&mut output)?;
     }

@@ -78,57 +78,57 @@ pub struct SymbolTable {
     hints: HashMap<usize, Hint>,
 }
 
-// format: ADDR (SYMBOL|HINT)
-fn load_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
-    let mut symbols: HashMap<String, usize> = HashMap::new();
-    let mut hints: HashMap<usize, Hint> = HashMap::new();
-
-    let mut lexer = Token::lexer(source);
-
-    while let Some(res) = lexer.next() {
-        match res {
-            Ok(Token::Addr(addr)) => {
-                let token = expect_token!(lexer)?;
-                match token {
-                    Token::Label(label) => {
-                        // TODO check for dupes
-                        symbols.insert(label, addr.into());
-                    }
-                    Token::HintFill(hint) | Token::HintStringz(hint) => {
-                        hints.insert(addr.into(), hint);
-                    }
-                    _ => {
-                        return Err(ParseError::UnexpectedToken(
-                            token,
-                            lexer.extras.0,
-                            lexer.slice().into(),
-                        ));
-                    }
-                }
-            }
-            Ok(token) => {
-                return Err(ParseError::UnexpectedToken(
-                    token,
-                    lexer.extras.0,
-                    lexer.slice().into(),
-                ));
-            }
-            Err(e) => {
-                return Err(ParseError::LexError(
-                    e,
-                    lexer.extras.0,
-                    lexer.slice().into(),
-                ))
-            }
-        }
-    }
-
-    Ok(SymbolTable::new(symbols, hints))
-}
-
 impl SymbolTable {
     pub fn new(symbols: HashMap<String, usize>, hints: HashMap<usize, Hint>) -> SymbolTable {
         SymbolTable { symbols, hints }
+    }
+
+    /// Loads a symbol table from input.
+    pub fn load(source: &str) -> Result<SymbolTable, ParseError> {
+        let mut symbols: HashMap<String, usize> = HashMap::new();
+        let mut hints: HashMap<usize, Hint> = HashMap::new();
+
+        let mut lexer = Token::lexer(source);
+
+        while let Some(res) = lexer.next() {
+            match res {
+                Ok(Token::Addr(addr)) => {
+                    let token = expect_token!(lexer)?;
+                    match token {
+                        Token::Label(label) => {
+                            // TODO check for dupes
+                            symbols.insert(label, addr.into());
+                        }
+                        Token::HintFill(hint) | Token::HintStringz(hint) => {
+                            hints.insert(addr.into(), hint);
+                        }
+                        _ => {
+                            return Err(ParseError::UnexpectedToken(
+                                token,
+                                lexer.extras.0,
+                                lexer.slice().into(),
+                            ));
+                        }
+                    }
+                }
+                Ok(token) => {
+                    return Err(ParseError::UnexpectedToken(
+                        token,
+                        lexer.extras.0,
+                        lexer.slice().into(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(ParseError::LexError(
+                        e,
+                        lexer.extras.0,
+                        lexer.slice().into(),
+                    ))
+                }
+            }
+        }
+
+        Ok(SymbolTable::new(symbols, hints))
     }
 }
 
