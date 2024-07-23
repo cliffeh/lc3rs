@@ -74,13 +74,25 @@ macro_rules! expect_token {
 }
 
 pub struct SymbolTable {
+    /// Map of symbols to their respective addresses within a program
     symbols: HashMap<String, usize>,
+    /// Map of addresses to assembler directive hints
     hints: HashMap<usize, Hint>,
+    /// Map of addresses to symbol references
+    refs: HashMap<usize, String>,
 }
 
 impl SymbolTable {
-    pub fn new(symbols: HashMap<String, usize>, hints: HashMap<usize, Hint>) -> SymbolTable {
-        SymbolTable { symbols, hints }
+    pub fn new(
+        symbols: HashMap<String, usize>,
+        hints: HashMap<usize, Hint>,
+        refs: HashMap<usize, String>,
+    ) -> SymbolTable {
+        SymbolTable {
+            symbols,
+            hints,
+            refs,
+        }
     }
 
     /// Loads a symbol table from input.
@@ -128,32 +140,31 @@ impl SymbolTable {
             }
         }
 
-        Ok(SymbolTable::new(symbols, hints))
+        Ok(SymbolTable::new(symbols, hints, HashMap::new()))
     }
 
-    pub fn insert_symbol(&mut self, label: String, addr: usize) -> Result<Option<usize>, SymbolError> {
-        match self.symbols.get(&label) {
-            Some(_) => Err(SymbolError::DuplicateSymbol(label)),
-            None => Ok(self.symbols.insert(label, addr))
-        }
-        
+    pub fn insert_symbol(&mut self, label: String, addr: usize) -> Option<usize> {
+        self.symbols.insert(label, addr)
     }
 
-    pub fn get_symbol_address(&self, label: &String) -> Result<Option<&usize>, SymbolError> {
-        if let Some(addr) = self.symbols.get(label) {
-            Ok(Some(addr))
-        } else {
-            Err(SymbolError::UndefinedSymbol(label.into()))
-        }
+    pub fn get_symbol_address(&self, label: &String) -> Option<&usize> {
+        self.symbols.get(label)
     }
 
     pub fn insert_hint(&mut self, addr: usize, hint: Hint) -> Option<Hint> {
-        // TODO check for duplicate hints
         self.hints.insert(addr, hint)
     }
 
     pub fn get_hint(&self, addr: &usize) -> Option<&Hint> {
         self.hints.get(addr)
+    }
+
+    pub fn insert_ref(&mut self, addr: usize, label: String) -> Option<String> {
+        self.refs.insert(addr, label)
+    }
+
+    pub fn get_ref(&self, addr: &usize) -> Option<&String> {
+        self.refs.get(addr)
     }
 
     /// Does a reverse lookup of a symbol, given its address
@@ -169,7 +180,7 @@ impl SymbolTable {
 
 impl Default for SymbolTable {
     fn default() -> Self {
-        SymbolTable::new(HashMap::new(), HashMap::new())
+        SymbolTable::new(HashMap::new(), HashMap::new(), HashMap::new())
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{sym::SymbolError, Hint, Instruction, Op, Program, Trap};
+use crate::{sym::SymbolError, Hint, Op, Program, Trap};
 use logos::{Lexer, Logos, Skip};
 use std::num::ParseIntError;
 use thiserror::Error;
@@ -215,16 +215,23 @@ impl Program {
                     break;
                 }
                 Token::LABEL(label) => {
-                    prog.symtab.insert_symbol(label, prog.instructions.len())?;
+                    // TODO remove clone?
+                    if let Some(_) = prog
+                        .symtab
+                        .insert_symbol(label.clone(), prog.instructions.len())
+                    {
+                        return Err(ParseError::SymbolError(SymbolError::DuplicateSymbol(label)));
+                    }
                 }
                 /* assembler directives */
                 Token::FILL => {
                     prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
                     let token = expect_token!(lexer)?;
                     match token {
-                        Token::NUMLIT(word) => prog.instructions.push(Instruction::new(word, None)),
+                        Token::NUMLIT(word) => prog.instructions.push(word),
                         Token::LABEL(label) => {
-                            prog.instructions.push(Instruction::new(0, Some(label)))
+                            prog.symtab.insert_ref(prog.instructions.len(), label);
+                            prog.instructions.push(0u16);
                         }
                         _ => {
                             return Err(ParseError::UnexpectedToken(
@@ -236,16 +243,20 @@ impl Program {
                     }
                 }
                 Token::STRINGZ => {
-                    prog.symtab.insert_hint(prog.instructions.len(), Hint::Stringz);
+                    prog.symtab
+                        .insert_hint(prog.instructions.len(), Hint::Stringz);
                     let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
                     for b in unescape(&escaped).as_bytes() {
-                        prog.instructions.push(Instruction::new(*b as u16, None));
+                        prog.instructions.push(*b as u16);
                     }
-                    prog.instructions.push(Instruction::new(0, None));
+                    prog.instructions.push(0u16);
                 }
                 _ => {
-                    prog.instructions
-                        .push(Instruction::parse_la(&mut lexer, token)?);
+                    let (inst, sym) = parse_instruction_la(&mut lexer, token)?;
+                    if let Some(label) = sym {
+                        prog.symtab.insert_ref(prog.instructions.len(), label);
+                    }
+                    prog.instructions.push(inst);
                 }
             }
         }
@@ -254,160 +265,149 @@ impl Program {
     }
 }
 
-impl Instruction {
-    /// Parse a single LC3 instruction (outside of the context of a full program).
-    ///
-    /// Most users won't actually ever need to use this, but it's handy for testing/debugging.
-    ///
-    /// ```rust
-    /// use lc3::{Instruction, Op, Trap};
-    ///
-    /// /* operations */
-    /// assert_eq!(Instruction::parse_instruction("ADD R0, R1, R2"), Ok(Instruction::new((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
-    /// assert_eq!(Instruction::parse_instruction("AND R3, R4, R5"), Ok(Instruction::new((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
-    /// assert_eq!(Instruction::parse_instruction("ADD R6, R7, #-7"), Ok(Instruction::new((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("AND R6, R7, #-7"), Ok(Instruction::new((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("BR x123"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("BR LABEL"), Ok(Instruction::new((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("JMP R1"), Ok(Instruction::new((Op::JMP as u16) << 12 | 1 << 6, None)));
-    /// assert_eq!(Instruction::parse_instruction("JSR x123"), Ok(Instruction::new((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff),None)));
-    /// assert_eq!(Instruction::parse_instruction("JSRR R1"), Ok(Instruction::new((Op::JSR as u16) << 12 | 1 << 6, None)));
-    /// assert_eq!(Instruction::parse_instruction("LD R1, x123"), Ok(Instruction::new((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("LD R1, LABEL"), Ok(Instruction::new((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("LDI R1, x123"), Ok(Instruction::new((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("LDI R1, LABEL"), Ok(Instruction::new((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("LEA R1, x123"), Ok(Instruction::new((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("LEA R1, LABEL"), Ok(Instruction::new((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("RET"), Ok(Instruction::new((Op::JMP as u16) << 12 | 7 << 6, None)));
-    /// assert_eq!(Instruction::parse_instruction("ST R1, x123"), Ok(Instruction::new((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("ST R1, LABEL"), Ok(Instruction::new((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("STI R1, x123"), Ok(Instruction::new((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-    /// assert_eq!(Instruction::parse_instruction("STI R1, LABEL"), Ok(Instruction::new((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-    /// assert_eq!(Instruction::parse_instruction("LDR R6, R7, #-7"), Ok(Instruction::new((Op::LDR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("STR R6, R7, #-7"), Ok(Instruction::new((Op::STR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
-    ///
-    /// /* traps */
-    /// assert_eq!(Instruction::parse_instruction("TRAP x23"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (0x23 & 0xff), None)));
-    /// assert_eq!(Instruction::parse_instruction("GETC"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::GETC as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("OUT"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::OUT as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("PUTS"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::PUTS as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("IN"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::IN as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("PUTSP"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), None)));
-    /// assert_eq!(Instruction::parse_instruction("HALT"), Ok(Instruction::new((Op::TRAP as u16) << 12 | (Trap::HALT as u16), None)));
-    /// ```
-    pub fn parse_instruction(source: &str) -> Result<Instruction, ParseError> {
-        let mut lexer = Token::lexer(source);
-        let token = expect_token!(lexer)?;
-        Instruction::parse_la(&mut lexer, token)
-    }
+/// Parse a single LC3 instruction (outside of the context of a full program).
+///
+/// Most users won't actually ever need to use this, but it's handy for testing/debugging.
+///
+/// ```rust
+/// use lc3::{Instruction, Op, Trap};
+///
+/// /* operations */
+/// assert_eq!(Instruction::parse_instruction("ADD R0, R1, R2"), Ok(((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
+/// assert_eq!(Instruction::parse_instruction("AND R3, R4, R5"), Ok(((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
+/// assert_eq!(Instruction::parse_instruction("ADD R6, R7, #-7"), Ok(((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("AND R6, R7, #-7"), Ok(((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("BR x123"), Ok(((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("BR LABEL"), Ok(((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("JMP R1"), Ok(((Op::JMP as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(Instruction::parse_instruction("JSR x123"), Ok(((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff),None)));
+/// assert_eq!(Instruction::parse_instruction("JSRR R1"), Ok(((Op::JSR as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(Instruction::parse_instruction("LD R1, x123"), Ok(((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("LD R1, LABEL"), Ok(((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("LDI R1, x123"), Ok(((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("LDI R1, LABEL"), Ok(((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("LEA R1, x123"), Ok(((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("LEA R1, LABEL"), Ok(((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("RET"), Ok(((Op::JMP as u16) << 12 | 7 << 6, None)));
+/// assert_eq!(Instruction::parse_instruction("ST R1, x123"), Ok(((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("ST R1, LABEL"), Ok(((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("STI R1, x123"), Ok(((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(Instruction::parse_instruction("STI R1, LABEL"), Ok(((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(Instruction::parse_instruction("LDR R6, R7, #-7"), Ok(((Op::LDR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("STR R6, R7, #-7"), Ok(((Op::STR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+///
+/// /* traps */
+/// assert_eq!(Instruction::parse_instruction("TRAP x23"), Ok(((Op::TRAP as u16) << 12 | (0x23 & 0xff), None)));
+/// assert_eq!(Instruction::parse_instruction("GETC"), Ok(((Op::TRAP as u16) << 12 | (Trap::GETC as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("OUT"), Ok(((Op::TRAP as u16) << 12 | (Trap::OUT as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("PUTS"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTS as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("IN"), Ok(((Op::TRAP as u16) << 12 | (Trap::IN as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("PUTSP"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), None)));
+/// assert_eq!(Instruction::parse_instruction("HALT"), Ok(((Op::TRAP as u16) << 12 | (Trap::HALT as u16), None)));
+/// ```
+pub fn parse_instruction(source: &str) -> Result<(u16, Option<String>), ParseError> {
+    let mut lexer = Token::lexer(source);
+    let token = expect_token!(lexer)?;
+    parse_instruction_la(&mut lexer, token)
+}
 
-    fn parse_la(lexer: &mut Lexer<Token>, la: Token) -> Result<Instruction, ParseError> {
-        match la {
-            /* operations */
-            Token::ADD(op) | Token::AND(op) => {
-                let r1 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let r2 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let token = expect_token!(lexer)?;
-                match token {
-                    Token::REG(r3) => Ok(Instruction::new(op | r1 << 9 | r2 << 6 | r3, None)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::new(
-                        op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f),
-                        None,
-                    )),
-                    _ => Err(ParseError::UnexpectedToken(
-                        token,
-                        lexer.extras.0 + 1,
-                        lexer.slice().to_string(),
-                    )),
-                }
+fn parse_instruction_la(
+    lexer: &mut Lexer<Token>,
+    la: Token,
+) -> Result<(u16, Option<String>), ParseError> {
+    match la {
+        /* operations */
+        Token::ADD(op) | Token::AND(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::REG(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
+                Token::NUMLIT(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f), None)),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
             }
-            Token::BR(op) => {
-                let token = expect_token!(lexer)?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => {
-                        Ok(Instruction::new(op | (pcoffset9 & 0x1ff), None))
-                    }
-                    Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken(
-                        token,
-                        lexer.extras.0 + 1,
-                        lexer.slice().to_string(),
-                    )),
-                }
-            }
-            Token::JMP(op) | Token::JSRR(op) => {
-                let r1 = expect_token!(lexer, Token::REG(r) => r)?;
-                Ok(Instruction::new(op | r1 << 6, None))
-            }
-            Token::RET(op) => Ok(Instruction::new(op, None)),
-            Token::JSR(op) => {
-                let token = expect_token!(lexer)?;
-                match token {
-                    Token::NUMLIT(pcoffset11) => {
-                        Ok(Instruction::new(op | (pcoffset11 & 0x7ff), None))
-                    }
-                    Token::LABEL(label) => Ok(Instruction::new(op, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken(
-                        token,
-                        lexer.extras.0 + 1,
-                        lexer.slice().to_string(),
-                    )),
-                }
-            }
-            Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
-                let r1 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let token = expect_token!(lexer)?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => {
-                        Ok(Instruction::new(op | r1 << 9 | (pcoffset9 & 0x1ff), None))
-                    }
-                    Token::LABEL(label) => Ok(Instruction::new(op | r1 << 9, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken(
-                        token,
-                        lexer.extras.0 + 1,
-                        lexer.slice().to_string(),
-                    )),
-                }
-            }
-            Token::LDR(op) | Token::STR(op) => {
-                let r1 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let r2 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let offset6 = expect_token!(lexer, Token::NUMLIT(offset6) => offset6)?;
-                Ok(Instruction::new(
-                    op | r1 << 9 | r2 << 6 | (offset6 & 0x3f),
-                    None,
-                ))
-            }
-            Token::NOT(op) => {
-                let r1 = expect_token!(lexer, Token::REG(r) => r)?;
-                expect_token!(lexer, Token::COMMA)?;
-                let r2 = expect_token!(lexer, Token::REG(r) => r)?;
-                Ok(Instruction::new(op | r1 << 9 | r2 << 6 | 0b111111, None))
-            }
-            Token::RTI(op) => Ok(Instruction::new(op, None)),
-
-            /* traps */
-            Token::TRAP(op) => {
-                let trapvect8 = expect_token!(lexer, Token::NUMLIT(trapvect8) => trapvect8)?;
-                Ok(Instruction::new(op | (trapvect8 & 0xff), None))
-            }
-            Token::GETC(op)
-            | Token::OUT(op)
-            | Token::PUTS(op)
-            | Token::IN(op)
-            | Token::PUTSP(op)
-            | Token::HALT(op) => Ok(Instruction::new(op, None)),
-            _ => Err(ParseError::UnexpectedToken(
-                la,
-                lexer.extras.0 + 1,
-                lexer.slice().to_string(),
-            )),
         }
+        Token::BR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok((op | (pcoffset9 & 0x1ff), None)),
+                Token::LABEL(label) => Ok((op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
+        }
+        Token::JMP(op) | Token::JSRR(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            Ok((op | r1 << 6, None))
+        }
+        Token::RET(op) => Ok((op, None)),
+        Token::JSR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset11) => Ok((op | (pcoffset11 & 0x7ff), None)),
+                Token::LABEL(label) => Ok((op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
+        }
+        Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NUMLIT(pcoffset9) => Ok((op | r1 << 9 | (pcoffset9 & 0x1ff), None)),
+                Token::LABEL(label) => Ok((op | r1 << 9, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
+        }
+        Token::LDR(op) | Token::STR(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let offset6 = expect_token!(lexer, Token::NUMLIT(offset6) => offset6)?;
+            Ok((op | r1 << 9 | r2 << 6 | (offset6 & 0x3f), None))
+        }
+        Token::NOT(op) => {
+            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            Ok((op | r1 << 9 | r2 << 6 | 0b111111, None))
+        }
+        Token::RTI(op) => Ok((op, None)),
+
+        /* traps */
+        Token::TRAP(op) => {
+            let trapvect8 = expect_token!(lexer, Token::NUMLIT(trapvect8) => trapvect8)?;
+            Ok((op | (trapvect8 & 0xff), None))
+        }
+        Token::GETC(op)
+        | Token::OUT(op)
+        | Token::PUTS(op)
+        | Token::IN(op)
+        | Token::PUTSP(op)
+        | Token::HALT(op) => Ok((op, None)),
+        _ => Err(ParseError::UnexpectedToken(
+            la,
+            lexer.extras.0 + 1,
+            lexer.slice().to_string(),
+        )),
     }
 }
 

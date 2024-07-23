@@ -48,34 +48,18 @@ pub enum Hint {
     Stringz,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct Instruction {
-    pub word: u16,
-    pub label: Option<String>,
-}
-
 pub struct Program {
     /// Origin address of the program
     origin: u16,
     /// List of instructions that comprise the program
-    instructions: Vec<Instruction>,
-    /// Symbol table, containing addresses of symbols and assembler directive hints 
+    instructions: Vec<u16>,
+    /// Symbol table, containing addresses of symbols and assembler directive hints
     symtab: SymbolTable,
-}
-
-impl Instruction {
-    pub fn new(word: u16, label: Option<String>) -> Self {
-        Instruction { word, label }
-    }
 }
 
 impl<'p> Program {
     /// Creates a new program.
-    pub fn new(
-        origin: u16,
-        instructions: Vec<Instruction>,
-        symtab: SymbolTable
-    ) -> Self {
+    pub fn new(origin: u16, instructions: Vec<u16>, symtab: SymbolTable) -> Self {
         Program {
             origin,
             instructions,
@@ -88,31 +72,36 @@ impl<'p> Program {
         // for each instruction
         for iaddr in 0..self.instructions.len() {
             // if that instruction references a label
-            if let Some(label) = &self.instructions[iaddr].label {
+            if let Some(label) = self.symtab.get_ref(&iaddr) {
                 // get the address of that label
-                if let Some(&saddr) = &self.symtab.get_symbol_address(label)? {
+                if let Some(&saddr) = &self.symtab.get_symbol_address(label) {
                     if let Some(Hint::Fill) = self.symtab.get_hint(&iaddr) {
                         // for .FILL we want the "raw" address of the label relative to the program's origin
-                        self.instructions[iaddr].word = self.origin.wrapping_add(saddr as u16);
+                        self.instructions[iaddr] = self.origin.wrapping_add(saddr as u16);
                     } else {
                         // for operations we want the offset of the label relative to the incremented PC
-                        let op = Op::from(self.instructions[iaddr].word >> 12);
+                        let op = Op::from(self.instructions[iaddr] >> 12);
                         match op {
                             Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
                                 // PCoffset9
-                                self.instructions[iaddr].word |=
+                                self.instructions[iaddr] |=
                                     ((saddr as isize - iaddr as isize - 1) as u16) & 0x1ff;
                             }
                             Op::JSR => {
                                 // PCoffset11
-                                self.instructions[iaddr].word |=
+                                self.instructions[iaddr] |=
                                     ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
                             }
                             _ => {
-                                return Err(SymbolError::UnexpectedSymbol(format!("{} doesn't take a symbol argument", op)));
+                                return Err(SymbolError::UnexpectedSymbol(format!(
+                                    "{} doesn't take a symbol argument",
+                                    op
+                                )));
                             }
                         }
                     }
+                } else {
+                    return Err(SymbolError::UndefinedSymbol(label.into()));
                 }
             }
         }
@@ -124,7 +113,7 @@ impl<'p> Program {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.origin as u16))?;
         for instruction in &self.instructions {
-            n += w.write(&u16::to_be_bytes(instruction.word))?; // TODO!
+            n += w.write(&u16::to_be_bytes(*instruction))?; // TODO!
         }
         Ok(n)
     }
@@ -254,16 +243,16 @@ impl fmt::Display for Program {
             if let Some(hint) = self.symtab.get_hint(&iaddr) {
                 match hint {
                     Hint::Fill => {
-                        if let Some(label) = &self.instructions[iaddr].label {
+                        if let Some(label) = self.symtab.get_ref(&iaddr) {
                             writeln!(f, ".FILL {}", label)?;
                         } else {
-                            writeln!(f, ".FILL x{:04X}", self.instructions[iaddr].word)?;
+                            writeln!(f, ".FILL x{:04X}", self.instructions[iaddr])?;
                         }
                     }
                     Hint::Stringz => {
                         f.write_str(".STRINGZ \"")?;
-                        while self.instructions[iaddr].word != 0 {
-                            let b = (self.instructions[iaddr].word & 0xff) as u8;
+                        while self.instructions[iaddr] != 0 {
+                            let b = (self.instructions[iaddr] & 0xff) as u8;
                             write!(f, "{}", escape(b as char))?;
                             iaddr += 1;
                         }
@@ -271,143 +260,120 @@ impl fmt::Display for Program {
                     }
                 }
             } else {
-                write!(f, "{}\n", self.instructions[iaddr])?;
+                let inst = self.instructions[iaddr];
+                let op: Op = inst.into();
+                let mut s: String = format!("{}", op);
+
+                match op {
+                    Op::ADD | Op::AND => {
+                        s += format!(" R{}, R{}, ", (inst >> 9) & 0b111, (inst >> 6) & 0b111)
+                            .as_str();
+                        if (inst & (1 << 5)) != 0 {
+                            s += format!("#{}", sign_extend(inst & 0x1f, 5) as i16).as_str();
+                        } else if inst & (0b11 << 3) != 0 {
+                            // invalid ADD|AND if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            s += format!("R{}", inst & 0b111).as_str();
+                        }
+                    }
+                    Op::BR => {
+                        if inst & (0b111 << 9) == 0 {
+                            // invalid BR if these bits aren't set
+                            s = format!(".FILL x{:04X}", inst);
+                        }
+                        if inst & (1 << 11) != 0 {
+                            s += "n";
+                        }
+                        if inst & (1 << 10) != 0 {
+                            s += "z";
+                        }
+                        if inst & (1 << 9) != 0 {
+                            s += "p";
+                        }
+                        if let Some(label) = self.symtab.get_ref(&iaddr) {
+                            s += format!(" {}", label).as_str();
+                        } else {
+                            s += format!(" x{:04X}", inst & 0x1ff).as_str();
+                        }
+                    }
+                    Op::JMP => {
+                        if inst & ((0b111 << 9) | (0b11111)) != 0 {
+                            // invalid JMP|RET if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            let r1 = (inst >> 6) & 0b111;
+                            if r1 == 7 {
+                                s = String::from("RET");
+                            } else {
+                                s += format!(" R{}", (inst >> 6) & 0b111).as_str();
+                            }
+                        }
+                    }
+                    Op::JSR => {
+                        if inst & (1 << 11) != 0 {
+                            if let Some(label) = self.symtab.get_ref(&iaddr) {
+                                s += format!(" {}", label).as_str();
+                            } else {
+                                s += format!(" x{:04X}", inst & 0x7ff).as_str();
+                            }
+                        } else {
+                            s = format!("JSRR R{}", (inst >> 6) & 0b111);
+                        }
+                    }
+                    Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
+                        let r1 = (inst >> 9) & 0b111;
+                        s += format!(" R{}, ", r1).as_str();
+                        if let Some(label) = self.symtab.get_ref(&iaddr) {
+                            s += format!("{}", label).as_str();
+                        } else {
+                            s += format!("x{:04X}", inst & 0x1ff).as_str();
+                        }
+                    }
+                    Op::LDR | Op::STR => {
+                        s += format!(
+                            " R{}, R{}, #{}",
+                            (inst >> 9) & 0b111,
+                            (inst >> 6) & 0b111,
+                            sign_extend(inst & 0x3ff, 6) as i16
+                        )
+                        .as_str();
+                    }
+                    Op::NOT => {
+                        if inst & 0b111111 == 0 {
+                            // invalid NOT if these bits aren't set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            s += format!(" R{}, R{}", (inst >> 9) & 0b111, (inst >> 6) & 0b111)
+                                .as_str();
+                        }
+                    }
+                    Op::TRAP => {
+                        if inst & (0b1111 << 8) != 0 {
+                            // invalid TRAP if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            let trapvect8 = inst & 0xff;
+                            if let Ok(trap) = Trap::try_from(trapvect8) {
+                                s = format!("{}", trap);
+                            } else {
+                                s += format!(" x{:04X}", trapvect8).as_str();
+                            }
+                        }
+                    }
+                    Op::RTI => {
+                        if inst & 0xfff != 0 {
+                            // invalid RTI if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        }
+                    }
+                    Op::RES => unimplemented!(),
+                }
+                write!(f, "{}", s);
             }
 
             iaddr += 1;
         }
         writeln!(f, ".END")
-    }
-}
-
-impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let op = Op::from(self.word >> 12);
-        let mut s: String = format!("{}", op);
-        match op {
-            Op::ADD | Op::AND => {
-                s += format!(
-                    " R{}, R{}, ",
-                    (self.word >> 9) & 0b111,
-                    (self.word >> 6) & 0b111
-                )
-                .as_str();
-                if (self.word & (1 << 5)) != 0 {
-                    s += format!("#{}", sign_extend(self.word & 0x1f, 5) as i16).as_str();
-                } else if self.word & (0b11 << 3) != 0 {
-                    // invalid ADD|AND if these bits are set
-                    s = format!(".FILL x{:04X}", self.word);
-                } else {
-                    s += format!("R{}", self.word & 0b111).as_str();
-                }
-            }
-            Op::BR => {
-                if self.word & (0b111 << 9) == 0 {
-                    // invalid BR if these bits aren't set
-                    s = format!(".FILL x{:04X}", self.word);
-                }
-                if self.word & (1 << 11) != 0 {
-                    s += "n";
-                }
-                if self.word & (1 << 10) != 0 {
-                    s += "z";
-                }
-                if self.word & (1 << 9) != 0 {
-                    s += "p";
-                }
-                match &self.label {
-                    Some(label) => s += format!(" {}", label).as_str(),
-                    None => s += format!(" x{:04X}", self.word & 0x1ff).as_str(),
-                }
-            }
-            Op::JMP => {
-                if self.word & ((0b111 << 9) | (0b11111)) != 0 {
-                    // invalid JMP|RET if these bits are set
-                    s = format!(".FILL x{:04X}", self.word);
-                } else {
-                    let r1 = (self.word >> 6) & 0b111;
-                    if r1 == 7 {
-                        s = String::from("RET");
-                    } else {
-                        s += format!(" R{}", (self.word >> 6) & 0b111).as_str();
-                    }
-                }
-            }
-            Op::JSR => {
-                if self.word & (1 << 11) != 0 {
-                    match &self.label {
-                        Some(label) => s += format!(" {}", label).as_str(),
-                        None => s += format!(" x{:04X}", self.word & 0x7ff).as_str(),
-                    }
-                } else {
-                    s = format!("JSRR R{}", (self.word >> 6) & 0b111);
-                }
-            }
-            Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
-                let r1 = (self.word >> 9) & 0b111;
-                s += format!(" R{}, ", r1).as_str();
-                match &self.label {
-                    Some(label) => s += format!("{}", label).as_str(),
-                    None => s += format!("x{:04X}", self.word & 0x1ff).as_str(),
-                }
-            }
-            Op::LDR | Op::STR => {
-                s += format!(
-                    " R{}, R{}, #{}",
-                    (self.word >> 9) & 0b111,
-                    (self.word >> 6) & 0b111,
-                    sign_extend(self.word & 0x3ff, 6) as i16
-                )
-                .as_str();
-            }
-            Op::NOT => {
-                if self.word & 0b111111 == 0 {
-                    // invalid NOT if these bits aren't set
-                    s = format!(".FILL x{:04X}", self.word);
-                } else {
-                    s += format!(
-                        " R{}, R{}",
-                        (self.word >> 9) & 0b111,
-                        (self.word >> 6) & 0b111
-                    )
-                    .as_str();
-                }
-            }
-            Op::TRAP => {
-                if self.word & (0b1111 << 8) != 0 {
-                    // invalid TRAP if these bits are set
-                    s = format!(".FILL x{:04X}", self.word);
-                } else {
-                    let trapvect8 = self.word & 0xff;
-                    if let Ok(trap) = Trap::try_from(trapvect8) {
-                        s = format!("{}", trap);
-                    } else {
-                        s += format!(" x{:04X}", trapvect8).as_str();
-                    }
-                }
-            }
-            Op::RTI => {
-                if self.word & 0xfff != 0 {
-                    // invalid RTI if these bits are set
-                    s = format!(".FILL x{:04X}", self.word);
-                }
-            }
-            Op::RES => unimplemented!(),
-        }
-        f.write_str(&s)
-    }
-}
-
-impl fmt::Debug for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Instruction word: x{:04X}, label: {}",
-            self.word,
-            match &self.label {
-                Some(label) => format!("{}", label),
-                None => "None".to_string(),
-            }
-        )
     }
 }
