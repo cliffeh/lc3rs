@@ -45,6 +45,7 @@ pub enum Hint {
     Stringz,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Program {
     /// Origin address of the program
     origin: u16,
@@ -118,7 +119,7 @@ impl<'p> Program {
         let origin = u16::from_be_bytes([buf[0], buf[1]]);
 
         let mut instructions: Vec<u16> = vec![];
-        for i in 2..buf.len() {
+        for i in (2..buf.len()).step_by(2) {
             instructions.push(u16::from_be_bytes([buf[i], buf[i + 1]]));
         }
 
@@ -136,6 +137,7 @@ impl<'p> Program {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct SymbolTable {
     /// Map of symbols to their respective addresses within a program
     symbols: HashMap<String, usize>,

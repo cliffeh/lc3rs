@@ -10,6 +10,7 @@ use thiserror::Error;
 pub enum Token {
     /* operations */
     /// ```
+    /// use lc3::Op;
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
@@ -100,7 +101,6 @@ pub enum Token {
 
     /* registers */
     /// ```rust
-    /// use lc3::Reg;
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
@@ -207,7 +207,7 @@ pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
 }
 
 /// Parse LC3 source assembly into a binary program, _without_ resolving symbols references into addresses.
-fn parse_program(source: &str) -> Result<Program, ParseError> {
+pub fn parse_program(source: &str) -> Result<Program, ParseError> {
     let mut prog = Program::default();
     let mut lexer = Token::lexer(source);
 
@@ -323,40 +323,41 @@ pub fn parse_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
 /// Most users won't actually ever need to use this, but it's handy for testing/debugging.
 ///
 /// ```rust
-/// use lc3::{Instruction, Op, Trap};
+/// use lc3::{Op, Trap};
+/// use lc3::asm::parse_instruction;
 ///
 /// /* operations */
-/// assert_eq!(Instruction::parse_instruction("ADD R0, R1, R2"), Ok(((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
-/// assert_eq!(Instruction::parse_instruction("AND R3, R4, R5"), Ok(((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
-/// assert_eq!(Instruction::parse_instruction("ADD R6, R7, #-7"), Ok(((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("AND R6, R7, #-7"), Ok(((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("BR x123"), Ok(((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("BR LABEL"), Ok(((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("JMP R1"), Ok(((Op::JMP as u16) << 12 | 1 << 6, None)));
-/// assert_eq!(Instruction::parse_instruction("JSR x123"), Ok(((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff),None)));
-/// assert_eq!(Instruction::parse_instruction("JSRR R1"), Ok(((Op::JSR as u16) << 12 | 1 << 6, None)));
-/// assert_eq!(Instruction::parse_instruction("LD R1, x123"), Ok(((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("LD R1, LABEL"), Ok(((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("LDI R1, x123"), Ok(((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("LDI R1, LABEL"), Ok(((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("LEA R1, x123"), Ok(((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("LEA R1, LABEL"), Ok(((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("RET"), Ok(((Op::JMP as u16) << 12 | 7 << 6, None)));
-/// assert_eq!(Instruction::parse_instruction("ST R1, x123"), Ok(((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("ST R1, LABEL"), Ok(((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("STI R1, x123"), Ok(((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
-/// assert_eq!(Instruction::parse_instruction("STI R1, LABEL"), Ok(((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
-/// assert_eq!(Instruction::parse_instruction("LDR R6, R7, #-7"), Ok(((Op::LDR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("STR R6, R7, #-7"), Ok(((Op::STR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+/// assert_eq!(parse_instruction("ADD R0, R1, R2"), Ok(((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
+/// assert_eq!(parse_instruction("AND R3, R4, R5"), Ok(((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
+/// assert_eq!(parse_instruction("ADD R6, R7, #-7"), Ok(((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("AND R6, R7, #-7"), Ok(((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("BR x123"), Ok(((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("BR LABEL"), Ok(((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("JMP R1"), Ok(((Op::JMP as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("JSR x123"), Ok(((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff),None)));
+/// assert_eq!(parse_instruction("JSRR R1"), Ok(((Op::JSR as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("LD R1, x123"), Ok(((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LD R1, LABEL"), Ok(((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LDI R1, x123"), Ok(((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LDI R1, LABEL"), Ok(((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LEA R1, x123"), Ok(((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LEA R1, LABEL"), Ok(((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("RET"), Ok(((Op::JMP as u16) << 12 | 7 << 6, None)));
+/// assert_eq!(parse_instruction("ST R1, x123"), Ok(((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("ST R1, LABEL"), Ok(((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("STI R1, x123"), Ok(((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("STI R1, LABEL"), Ok(((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LDR R6, R7, #-7"), Ok(((Op::LDR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+/// assert_eq!(parse_instruction("STR R6, R7, #-7"), Ok(((Op::STR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
 ///
 /// /* traps */
-/// assert_eq!(Instruction::parse_instruction("TRAP x23"), Ok(((Op::TRAP as u16) << 12 | (0x23 & 0xff), None)));
-/// assert_eq!(Instruction::parse_instruction("GETC"), Ok(((Op::TRAP as u16) << 12 | (Trap::GETC as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("OUT"), Ok(((Op::TRAP as u16) << 12 | (Trap::OUT as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("PUTS"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTS as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("IN"), Ok(((Op::TRAP as u16) << 12 | (Trap::IN as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("PUTSP"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), None)));
-/// assert_eq!(Instruction::parse_instruction("HALT"), Ok(((Op::TRAP as u16) << 12 | (Trap::HALT as u16), None)));
+/// assert_eq!(parse_instruction("TRAP x23"), Ok(((Op::TRAP as u16) << 12 | (0x23 & 0xff), None)));
+/// assert_eq!(parse_instruction("GETC"), Ok(((Op::TRAP as u16) << 12 | (Trap::GETC as u16), None)));
+/// assert_eq!(parse_instruction("OUT"), Ok(((Op::TRAP as u16) << 12 | (Trap::OUT as u16), None)));
+/// assert_eq!(parse_instruction("PUTS"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTS as u16), None)));
+/// assert_eq!(parse_instruction("IN"), Ok(((Op::TRAP as u16) << 12 | (Trap::IN as u16), None)));
+/// assert_eq!(parse_instruction("PUTSP"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), None)));
+/// assert_eq!(parse_instruction("HALT"), Ok(((Op::TRAP as u16) << 12 | (Trap::HALT as u16), None)));
 /// ```
 pub fn parse_instruction(source: &str) -> Result<(u16, Option<String>), ParseError> {
     let mut lexer = Token::lexer(source);
