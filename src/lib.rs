@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Error, Read, Write};
+use std::{fmt, io};
 pub mod asm;
-use std::fmt;
 
 use thiserror::Error;
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
@@ -106,8 +105,28 @@ impl<'p> Program {
         Ok(())
     }
 
+    /// Reads a program in from `r`
+    pub fn read(r: &mut dyn io::Read) -> Result<Program, io::Error> {
+        let mut buf: Vec<u8> = vec![];
+        if r.read_to_end(&mut buf)? % 2 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "odd number of bytes in input",
+            ));
+        }
+
+        let origin = u16::from_be_bytes([buf[0], buf[1]]);
+
+        let mut instructions: Vec<u16> = vec![];
+        for i in 2..buf.len() {
+            instructions.push(u16::from_be_bytes([buf[i], buf[i + 1]]));
+        }
+
+        Ok(Program::new(origin, instructions, SymbolTable::default()))
+    }
+
     /// Writes the program out to `w`.
-    pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
+    pub fn write(&self, w: &mut dyn io::Write) -> Result<usize, io::Error> {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.origin as u16))?;
         for instruction in &self.instructions {
@@ -443,7 +462,7 @@ impl fmt::Display for Program {
                     }
                     Op::RES => unimplemented!(),
                 }
-                write!(f, "{}", s);
+                write!(f, "{}", s)?;
             }
 
             iaddr += 1;

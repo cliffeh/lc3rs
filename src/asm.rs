@@ -88,27 +88,6 @@ pub enum Token {
     #[token("HALT", |_| (((Op::TRAP as u16) << 12) | (Trap::HALT as u16)), ignore(ascii_case))]
     HALT(u16),
 
-    /* registers */
-    /// ```rust
-    /// use lc3::Reg;
-    /// use lc3::asm::Token;
-    /// use logos::Logos;
-    ///
-    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::REG(Reg::R0))));
-    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::REG(Reg::R1))));
-    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::REG(Reg::R2))));
-    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::REG(Reg::R3))));
-    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::REG(Reg::R4))));
-    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::REG(Reg::R5))));
-    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::REG(Reg::R6))));
-    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::REG(Reg::R7))));
-    /// ```
-    #[regex("R[0-7]", callback = |lex| {
-        (lex.slice().as_bytes()[1] - b'0') as u16
-    },
-    ignore(ascii_case))]
-    REG(u16),
-
     /* assembler directives */
     #[token(".ORIG", ignore(ascii_case))]
     ORIG, /* origin */
@@ -119,22 +98,43 @@ pub enum Token {
     #[token(".END", ignore(ascii_case))]
     END, /* end of program */
 
+    /* registers */
+    /// ```rust
+    /// use lc3::Reg;
+    /// use lc3::asm::Token;
+    /// use logos::Logos;
+    ///
+    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::Reg(0))));
+    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::Reg(1))));
+    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::Reg(2))));
+    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::Reg(3))));
+    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::Reg(4))));
+    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::Reg(5))));
+    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::Reg(6))));
+    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::Reg(7))));
+    /// ```
+    #[regex("R[0-7]", callback = |lex| {
+        (lex.slice().as_bytes()[1] - b'0') as u16
+    },
+    ignore(ascii_case))]
+    Reg(u16),
+
     /* literals */
     #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]{1,4}", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
         let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
         Ok::<u16, LexError>(value as u16)
     })]
-    NUMLIT(u16),
+    NumLit(u16),
     /// Returns the original unescaped string as a byte vector.
     /// TODO write a test for this
     #[regex(r#""(?:[^"]|\\")*""#, |lex| String::from(&lex.slice()[1..lex.slice().len()-1]))]
-    STRLIT(String),
+    StrLit(String),
 
     /* labels */
     // NB we're going to disallow a label beginning with `_` so we can use it for assembler directive hints
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
-    LABEL(String),
+    Label(String),
 
     /* assembler hints */
     #[token("_FILL", |_| Hint::Fill)]
@@ -212,7 +212,7 @@ fn parse_program(source: &str) -> Result<Program, ParseError> {
     let mut lexer = Token::lexer(source);
 
     expect_token!(lexer, Token::ORIG)?;
-    prog.origin = expect_token!(lexer, Token::NUMLIT(addr) => addr)?;
+    prog.origin = expect_token!(lexer, Token::NumLit(addr) => addr)?;
 
     loop {
         let token = expect_token!(lexer)?;
@@ -220,7 +220,7 @@ fn parse_program(source: &str) -> Result<Program, ParseError> {
             Token::END => {
                 break;
             }
-            Token::LABEL(label) => {
+            Token::Label(label) => {
                 // TODO remove clone?
                 if let Some(_) = prog
                     .symtab
@@ -234,8 +234,8 @@ fn parse_program(source: &str) -> Result<Program, ParseError> {
                 prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
                 let token = expect_token!(lexer)?;
                 match token {
-                    Token::NUMLIT(word) => prog.instructions.push(word),
-                    Token::LABEL(label) => {
+                    Token::NumLit(word) => prog.instructions.push(word),
+                    Token::Label(label) => {
                         prog.symtab.insert_ref(prog.instructions.len(), label);
                         prog.instructions.push(0u16);
                     }
@@ -251,7 +251,7 @@ fn parse_program(source: &str) -> Result<Program, ParseError> {
             Token::STRINGZ => {
                 prog.symtab
                     .insert_hint(prog.instructions.len(), Hint::Stringz);
-                let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
+                let escaped = expect_token!(lexer, Token::StrLit(s) => s)?;
                 for b in unescape(&escaped).as_bytes() {
                     prog.instructions.push(*b as u16);
                 }
@@ -279,10 +279,10 @@ pub fn parse_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
 
     while let Some(res) = lexer.next() {
         match res {
-            Ok(Token::NUMLIT(addr)) => {
+            Ok(Token::NumLit(addr)) => {
                 let token = expect_token!(lexer)?;
                 match token {
-                    Token::LABEL(label) => {
+                    Token::Label(label) => {
                         // TODO check for dupes
                         symbols.insert(label, addr.into());
                     }
@@ -371,14 +371,14 @@ fn parse_instruction_la(
     match la {
         /* operations */
         Token::ADD(op) | Token::AND(op) => {
-            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
-            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
             let token = expect_token!(lexer)?;
             match token {
-                Token::REG(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
-                Token::NUMLIT(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f), None)),
+                Token::Reg(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
+                Token::NumLit(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f), None)),
                 _ => Err(ParseError::UnexpectedToken(
                     token,
                     lexer.extras.0 + 1,
@@ -389,8 +389,8 @@ fn parse_instruction_la(
         Token::BR(op) => {
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset9) => Ok((op | (pcoffset9 & 0x1ff), None)),
-                Token::LABEL(label) => Ok((op, Some(label))),
+                Token::NumLit(pcoffset9) => Ok((op | (pcoffset9 & 0x1ff), None)),
+                Token::Label(label) => Ok((op, Some(label))),
                 _ => Err(ParseError::UnexpectedToken(
                     token,
                     lexer.extras.0 + 1,
@@ -399,15 +399,15 @@ fn parse_instruction_la(
             }
         }
         Token::JMP(op) | Token::JSRR(op) => {
-            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
             Ok((op | r1 << 6, None))
         }
         Token::RET(op) => Ok((op, None)),
         Token::JSR(op) => {
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset11) => Ok((op | (pcoffset11 & 0x7ff), None)),
-                Token::LABEL(label) => Ok((op, Some(label))),
+                Token::NumLit(pcoffset11) => Ok((op | (pcoffset11 & 0x7ff), None)),
+                Token::Label(label) => Ok((op, Some(label))),
                 _ => Err(ParseError::UnexpectedToken(
                     token,
                     lexer.extras.0 + 1,
@@ -416,12 +416,12 @@ fn parse_instruction_la(
             }
         }
         Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
-            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
             let token = expect_token!(lexer)?;
             match token {
-                Token::NUMLIT(pcoffset9) => Ok((op | r1 << 9 | (pcoffset9 & 0x1ff), None)),
-                Token::LABEL(label) => Ok((op | r1 << 9, Some(label))),
+                Token::NumLit(pcoffset9) => Ok((op | r1 << 9 | (pcoffset9 & 0x1ff), None)),
+                Token::Label(label) => Ok((op | r1 << 9, Some(label))),
                 _ => Err(ParseError::UnexpectedToken(
                     token,
                     lexer.extras.0 + 1,
@@ -430,24 +430,24 @@ fn parse_instruction_la(
             }
         }
         Token::LDR(op) | Token::STR(op) => {
-            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
-            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
-            let offset6 = expect_token!(lexer, Token::NUMLIT(offset6) => offset6)?;
+            let offset6 = expect_token!(lexer, Token::NumLit(offset6) => offset6)?;
             Ok((op | r1 << 9 | r2 << 6 | (offset6 & 0x3f), None))
         }
         Token::NOT(op) => {
-            let r1 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
             expect_token!(lexer, Token::COMMA)?;
-            let r2 = expect_token!(lexer, Token::REG(r) => r)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
             Ok((op | r1 << 9 | r2 << 6 | 0b111111, None))
         }
         Token::RTI(op) => Ok((op, None)),
 
         /* traps */
         Token::TRAP(op) => {
-            let trapvect8 = expect_token!(lexer, Token::NUMLIT(trapvect8) => trapvect8)?;
+            let trapvect8 = expect_token!(lexer, Token::NumLit(trapvect8) => trapvect8)?;
             Ok((op | (trapvect8 & 0xff), None))
         }
         Token::GETC(op)
