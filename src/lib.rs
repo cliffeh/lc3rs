@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 pub mod asm;
-pub mod sym;
-// pub mod vm;
 use std::fmt;
 
-use sym::{SymbolError, SymbolTable};
+use thiserror::Error;
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;
 
-/// Top 4 bits of an instruction, indicating what oparation it is
+/// Top 4 bits of an instruction, indicating what operation it is
 #[repr(u16)]
 
 pub enum Op {
@@ -119,9 +117,85 @@ impl<'p> Program {
     }
 }
 
+pub struct SymbolTable {
+    /// Map of symbols to their respective addresses within a program
+    symbols: HashMap<String, usize>,
+    /// Map of addresses to assembler directive hints
+    hints: HashMap<usize, Hint>,
+    /// Map of addresses to symbol references
+    refs: HashMap<usize, String>,
+}
+
+#[derive(Error, Clone, Debug, PartialEq)]
+pub enum SymbolError {
+    #[error("duplicate symbol: {0}")]
+    DuplicateSymbol(String),
+
+    #[error("undefined symbol: {0}")]
+    UndefinedSymbol(String),
+
+    #[error("unexpected symbol: {0}")]
+    UnexpectedSymbol(String),
+}
+
+impl SymbolTable {
+    pub fn new(
+        symbols: HashMap<String, usize>,
+        hints: HashMap<usize, Hint>,
+        refs: HashMap<usize, String>,
+    ) -> SymbolTable {
+        SymbolTable {
+            symbols,
+            hints,
+            refs,
+        }
+    }
+    pub fn insert_symbol(&mut self, label: String, addr: usize) -> Option<usize> {
+        self.symbols.insert(label, addr)
+    }
+
+    pub fn get_symbol_address(&self, label: &String) -> Option<&usize> {
+        self.symbols.get(label)
+    }
+
+    pub fn insert_hint(&mut self, addr: usize, hint: Hint) -> Option<Hint> {
+        self.hints.insert(addr, hint)
+    }
+
+    pub fn get_hint(&self, addr: &usize) -> Option<&Hint> {
+        self.hints.get(addr)
+    }
+
+    pub fn insert_ref(&mut self, addr: usize, label: String) -> Option<String> {
+        self.refs.insert(addr, label)
+    }
+
+    pub fn get_ref(&self, addr: &usize) -> Option<&String> {
+        self.refs.get(addr)
+    }
+
+    /// Does a reverse lookup of a symbol, given its address
+    pub fn lookup_symbol_by_address(&self, addr: usize) -> Option<&String> {
+        for (symbol, saddr) in self.symbols.iter() {
+            if *saddr == addr {
+                return Some(symbol);
+            }
+        }
+        None
+    }
+}
+
+/* defaults */
+
 impl Default for Program {
     fn default() -> Self {
         Program::new(0x3000, vec![], SymbolTable::default())
+    }
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        SymbolTable::new(HashMap::new(), HashMap::new(), HashMap::new())
     }
 }
 
@@ -375,5 +449,17 @@ impl fmt::Display for Program {
             iaddr += 1;
         }
         writeln!(f, ".END")
+    }
+}
+
+impl fmt::Display for SymbolTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        for (symbol, addr) in self.symbols.iter() {
+            writeln!(f, "x{addr:04x} {symbol}")?;
+        }
+        for (addr, hint) in self.hints.iter() {
+            writeln!(f, "x{addr:04x} {hint}")?;
+        }
+        Ok(())
     }
 }

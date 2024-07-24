@@ -1,6 +1,6 @@
-use crate::{sym::SymbolError, Hint, Op, Program, Trap};
+use crate::{SymbolError, Hint, Op, Program, SymbolTable, Trap};
 use logos::{Lexer, Logos, Skip};
-use std::num::ParseIntError;
+use std::{collections::HashMap, num::ParseIntError};
 use thiserror::Error;
 
 #[derive(Logos, Clone, Debug, PartialEq)]
@@ -136,6 +136,13 @@ pub enum Token {
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
     LABEL(String),
 
+    /* assembler hints */
+    #[token("_FILL", |_| Hint::Fill)]
+    HintFill(Hint),
+
+    #[token("_STRINGZ", |_| Hint::Stringz)]
+    HintStringz(Hint),
+
     /* punctuation */
     #[token(",")]
     COMMA,
@@ -190,79 +197,125 @@ macro_rules! expect_token {
     };
 }
 
-impl Program {
-    /// Parse LC3 source assembly into a binary program and resolve all symbol references.
-    pub fn assemble(source: &str) -> Result<Program, ParseError> {
-        let mut prog = Program::parse(source)?;
-        if let Err(e) = prog.resolve_symbols() {
-            return Err(ParseError::SymbolError(e));
-        }
-        Ok(prog)
+/// Parse LC3 source assembly into a binary program and resolve all symbol references.
+pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
+    let mut prog = parse_program(source)?;
+    if let Err(e) = prog.resolve_symbols() {
+        return Err(ParseError::SymbolError(e));
     }
+    Ok(prog)
+}
 
-    /// Parse LC3 source assembly into a binary program, _without_ resolving symbols references into addresses.
-    fn parse(source: &str) -> Result<Program, ParseError> {
-        let mut prog = Program::default();
-        let mut lexer = Token::lexer(source);
+/// Parse LC3 source assembly into a binary program, _without_ resolving symbols references into addresses.
+fn parse_program(source: &str) -> Result<Program, ParseError> {
+    let mut prog = Program::default();
+    let mut lexer = Token::lexer(source);
 
-        expect_token!(lexer, Token::ORIG)?;
-        prog.origin = expect_token!(lexer, Token::NUMLIT(addr) => addr)?;
+    expect_token!(lexer, Token::ORIG)?;
+    prog.origin = expect_token!(lexer, Token::NUMLIT(addr) => addr)?;
 
-        loop {
-            let token = expect_token!(lexer)?;
-            match token {
-                Token::END => {
-                    break;
-                }
-                Token::LABEL(label) => {
-                    // TODO remove clone?
-                    if let Some(_) = prog
-                        .symtab
-                        .insert_symbol(label.clone(), prog.instructions.len())
-                    {
-                        return Err(ParseError::SymbolError(SymbolError::DuplicateSymbol(label)));
-                    }
-                }
-                /* assembler directives */
-                Token::FILL => {
-                    prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
-                    let token = expect_token!(lexer)?;
-                    match token {
-                        Token::NUMLIT(word) => prog.instructions.push(word),
-                        Token::LABEL(label) => {
-                            prog.symtab.insert_ref(prog.instructions.len(), label);
-                            prog.instructions.push(0u16);
-                        }
-                        _ => {
-                            return Err(ParseError::UnexpectedToken(
-                                token,
-                                lexer.extras.0 + 1,
-                                lexer.slice().to_string(),
-                            ))
-                        }
-                    }
-                }
-                Token::STRINGZ => {
-                    prog.symtab
-                        .insert_hint(prog.instructions.len(), Hint::Stringz);
-                    let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
-                    for b in unescape(&escaped).as_bytes() {
-                        prog.instructions.push(*b as u16);
-                    }
-                    prog.instructions.push(0u16);
-                }
-                _ => {
-                    let (inst, sym) = parse_instruction_la(&mut lexer, token)?;
-                    if let Some(label) = sym {
-                        prog.symtab.insert_ref(prog.instructions.len(), label);
-                    }
-                    prog.instructions.push(inst);
+    loop {
+        let token = expect_token!(lexer)?;
+        match token {
+            Token::END => {
+                break;
+            }
+            Token::LABEL(label) => {
+                // TODO remove clone?
+                if let Some(_) = prog
+                    .symtab
+                    .insert_symbol(label.clone(), prog.instructions.len())
+                {
+                    return Err(ParseError::SymbolError(SymbolError::DuplicateSymbol(label)));
                 }
             }
+            /* assembler directives */
+            Token::FILL => {
+                prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
+                let token = expect_token!(lexer)?;
+                match token {
+                    Token::NUMLIT(word) => prog.instructions.push(word),
+                    Token::LABEL(label) => {
+                        prog.symtab.insert_ref(prog.instructions.len(), label);
+                        prog.instructions.push(0u16);
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0 + 1,
+                            lexer.slice().to_string(),
+                        ))
+                    }
+                }
+            }
+            Token::STRINGZ => {
+                prog.symtab
+                    .insert_hint(prog.instructions.len(), Hint::Stringz);
+                let escaped = expect_token!(lexer, Token::STRLIT(s) => s)?;
+                for b in unescape(&escaped).as_bytes() {
+                    prog.instructions.push(*b as u16);
+                }
+                prog.instructions.push(0u16);
+            }
+            _ => {
+                let (inst, sym) = parse_instruction_la(&mut lexer, token)?;
+                if let Some(label) = sym {
+                    prog.symtab.insert_ref(prog.instructions.len(), label);
+                }
+                prog.instructions.push(inst);
+            }
         }
-
-        Ok(prog)
     }
+
+    Ok(prog)
+}
+
+/// Loads a symbol table from input.
+pub fn parse_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
+    let mut symbols: HashMap<String, usize> = HashMap::new();
+    let mut hints: HashMap<usize, Hint> = HashMap::new();
+
+    let mut lexer = Token::lexer(source);
+
+    while let Some(res) = lexer.next() {
+        match res {
+            Ok(Token::NUMLIT(addr)) => {
+                let token = expect_token!(lexer)?;
+                match token {
+                    Token::LABEL(label) => {
+                        // TODO check for dupes
+                        symbols.insert(label, addr.into());
+                    }
+                    Token::HintFill(hint) | Token::HintStringz(hint) => {
+                        hints.insert(addr.into(), hint);
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0,
+                            lexer.slice().into(),
+                        ));
+                    }
+                }
+            }
+            Ok(token) => {
+                return Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ));
+            }
+            Err(e) => {
+                return Err(ParseError::LexError(
+                    e,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ))
+            }
+        }
+    }
+
+    Ok(SymbolTable::new(symbols, hints, HashMap::new()))
 }
 
 /// Parse a single LC3 instruction (outside of the context of a full program).
