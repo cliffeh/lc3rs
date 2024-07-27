@@ -6,16 +6,17 @@ use std::{fs, path::PathBuf};
 
 #[rstest]
 fn test_assemble(#[files("examples/*.asm")] infile: PathBuf) {
-    let source = fs::read_to_string(&infile).unwrap();
-    let actual = assemble_program(&source).unwrap();
-
     let mut outfile = infile.clone();
     outfile.set_extension("obj");
-    let mut output = fs::File::open(outfile).unwrap();
-    let expected = Program::read(&mut output).unwrap();
+    let mut expected: Vec<u8> = vec![];
+    let _ = fs::File::open(outfile).unwrap().read_to_end(&mut expected);
 
-   // assert_eq!(actual, expected);
+    let source = fs::read_to_string(&infile).unwrap();
+    let prog = assemble_program(&source).unwrap();
+    let mut actual: Vec<u8> = vec![];
+    let _ = prog.write(&mut actual);
 
+    assert_eq!(actual, expected);
 }
 
 // Test that the disassembled program re-assembles to the same object code.
