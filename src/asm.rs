@@ -1,4 +1,4 @@
-use crate::{SymbolError, Hint, Op, Program, SymbolTable, Trap};
+use crate::{Hint, Op, Program, SymbolError, SymbolTable, Trap};
 use logos::{Lexer, Logos, Skip};
 use std::{collections::HashMap, num::ParseIntError};
 use thiserror::Error;
@@ -200,9 +200,7 @@ macro_rules! expect_token {
 /// Parse LC3 source assembly into a binary program and resolve all symbol references.
 pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
     let mut prog = parse_program(source)?;
-    if let Err(e) = prog.resolve_symbols() {
-        return Err(ParseError::SymbolError(e));
-    }
+    prog.resolve_symbols()?;
     Ok(prog)
 }
 
