@@ -1,5 +1,5 @@
-use lc3::asm::assemble_program;
-use lc3::Program;
+use lc3::asm::{assemble_program, parse_symbol_table, ParseError, Token};
+use lc3::{Program, SymbolError};
 use rstest::rstest;
 use std::io::Read;
 use std::{fs, path::PathBuf};
@@ -67,4 +67,50 @@ fn test_disassemble_with_symbols(#[files("examples/*.obj")] infile: PathBuf) {
     let _ = reassembled_prog.write(&mut actual);
 
     assert_eq!(actual, expected);
+}
+
+#[rstest]
+fn test_duplicate_symbols(#[files("examples/bad/duplicate-symbols.asm")] infile: PathBuf) {
+    let mut source = String::new();
+    let _ = fs::File::open(infile).unwrap().read_to_string(&mut source);
+    let result = assemble_program(&source);
+
+    assert_eq!(
+        result,
+        Err(ParseError::SymbolError(SymbolError::DuplicateSymbol(
+            String::from("label1")
+        )))
+    );
+}
+
+#[rstest]
+fn test_unexpected_token(#[files("examples/bad/unexpected-token.asm")] infile: PathBuf) {
+    let mut source = String::new();
+    let _ = fs::File::open(infile).unwrap().read_to_string(&mut source);
+    let result = assemble_program(&source);
+
+    assert_eq!(
+        result,
+        Err(ParseError::UnexpectedToken(
+            Token::Reg(0),
+            2,
+            "R0".to_string()
+        ))
+    );
+}
+
+#[rstest]
+fn test_unexpected_symbol_table_token(#[files("examples/bad/unexpected-token.sym")] infile: PathBuf) {
+    let mut source = String::new();
+    let _ = fs::File::open(infile).unwrap().read_to_string(&mut source);
+    let result = parse_symbol_table(&source);
+
+    assert_eq!(
+        result,
+        Err(ParseError::UnexpectedToken(
+            Token::NumLit(0x456),
+            0,
+            "x456".to_string()
+        ))
+    );
 }

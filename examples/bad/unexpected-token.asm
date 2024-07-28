@@ -1,0 +1,3 @@
+.ORIG x3000
+.FILL R0
+.END

@@ -1,0 +1,4 @@
+.ORIG x3000
+label1 ADD R0, R1, R2
+label1 ADD R3, R4, R5
+.END
