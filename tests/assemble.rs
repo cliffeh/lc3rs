@@ -20,28 +20,25 @@ fn test_assemble(#[files("examples/*.asm")] infile: PathBuf) {
 }
 
 // Test that the disassembled program re-assembles to the same object code.
-// #[rstest]
-// fn test_disassemble_no_symbols(#[files("examples/*.obj")] infile: PathBuf) {
-//     // read in the object file
-//     let mut input = fs::File::open(infile.clone()).unwrap();
-//     let expected = Program::read(&mut input).unwrap();
+#[rstest]
+fn test_disassemble_no_symbols(#[files("examples/*.obj")] infile: PathBuf) {
+    // read in the object file
+    let mut input = fs::File::open(infile.clone()).unwrap();
+    let prog = Program::read(&mut input).unwrap();
+    let mut expected: Vec<u8> = vec![];
+    let _ = prog.write(&mut expected);
 
-//     // write out the disassembled program
-//     let mut output: Vec<u8> = vec![];
-//     let _ = write!(output, "{}", expected);
+    // write out the disassembled program
+    let disassembled_prog = format!("{}", prog);
 
-//     // re-assemble the program from what we've written out
-//     let actual = assemble(&mut Cursor::new(output)).unwrap();
+    // re-assemble the program from what we've written out
+    let reassembled_prog = assemble_program(&disassembled_prog).unwrap();
 
-//     // ...and test that the assembled object code is the same
-//     for pos in 0..actual.mem.len() {
-//         assert_eq!(
-//             actual.mem[pos], expected.mem[pos],
-//             "checking mem[{}]: x{:04X} x{:04X}",
-//             pos, actual.mem[pos], expected.mem[pos]
-//         );
-//     }
-// }
+    let mut actual: Vec<u8> = vec![];
+    let _ = reassembled_prog.write(&mut actual);
+
+    assert_eq!(actual, expected);
+}
 
 // // Test that the disassembled program re-assembles to the same object code.
 // #[rstest]

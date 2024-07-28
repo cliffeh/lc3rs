@@ -3,6 +3,7 @@ use std::io::Write;
 use std::{fmt, io};
 pub mod asm;
 
+use asm::{parse_symbol_table, ParseError};
 use thiserror::Error;
 // use vm::{COND_NEG, COND_POS, COND_ZRO};
 
@@ -64,6 +65,11 @@ impl<'p> Program {
             instructions,
             symtab,
         }
+    }
+
+    pub fn load_symbols(&mut self, source: &str) -> Result<&SymbolTable, ParseError> {
+        self.symtab = parse_symbol_table(source)?;
+        Ok(&self.symtab)
     }
 
     /// Resolves symbols to their actual addresses and populates instructions accordingly.
@@ -361,7 +367,7 @@ impl fmt::Display for Program {
                 }
             } else {
                 let inst = self.instructions[iaddr];
-                let op: Op = inst.into();
+                let op: Op = (inst >> 12).into();
                 let mut s: String = format!("{}", op);
 
                 match op {
@@ -381,20 +387,21 @@ impl fmt::Display for Program {
                         if inst & (0b111 << 9) == 0 {
                             // invalid BR if these bits aren't set
                             s = format!(".FILL x{:04X}", inst);
-                        }
-                        if inst & (1 << 11) != 0 {
-                            s += "n";
-                        }
-                        if inst & (1 << 10) != 0 {
-                            s += "z";
-                        }
-                        if inst & (1 << 9) != 0 {
-                            s += "p";
-                        }
-                        if let Some(label) = self.symtab.get_ref(&iaddr) {
-                            s += format!(" {}", label).as_str();
                         } else {
-                            s += format!(" x{:04X}", inst & 0x1ff).as_str();
+                            if inst & (1 << 11) != 0 {
+                                s += "n";
+                            }
+                            if inst & (1 << 10) != 0 {
+                                s += "z";
+                            }
+                            if inst & (1 << 9) != 0 {
+                                s += "p";
+                            }
+                            if let Some(label) = self.symtab.get_ref(&iaddr) {
+                                s += format!(" {}", label).as_str();
+                            } else {
+                                s += format!(" x{:04X}", inst & 0x1ff).as_str();
+                            }
                         }
                     }
                     Op::JMP => {
@@ -469,7 +476,7 @@ impl fmt::Display for Program {
                     }
                     Op::RES => unimplemented!(),
                 }
-                write!(f, "{}", s)?;
+                writeln!(f, "{}", s)?;
             }
 
             iaddr += 1;

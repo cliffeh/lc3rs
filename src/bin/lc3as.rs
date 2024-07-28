@@ -1,5 +1,6 @@
 use clap::Parser;
 use lc3::asm::assemble_program;
+use lc3::Program;
 use std::path::PathBuf;
 use std::{error, io};
 use std::{fs, path};
@@ -69,6 +70,16 @@ impl Args {
         Ok(buf)
     }
 
+    fn get_object_read(&self) -> Result<impl io::Read, io::Error> {
+        let input: Box<dyn io::Read> = if self.input == PathBuf::from("-") {
+            Box::new(io::stdin().lock()) as Box<dyn io::Read>
+        } else {
+            Box::new(fs::File::open(&self.input)?) as Box<dyn io::Read>
+        };
+
+        Ok(input)
+    }
+
     fn get_output_write(&self, ext: &str) -> Result<impl io::Write, io::Error> {
         Ok(if let Some(path) = &self.output {
             if *path == PathBuf::from("-") {
@@ -102,13 +113,42 @@ impl Args {
             Ok(Box::new(io::empty()) as Box<dyn io::Write>)
         }
     }
+
+    fn get_symbol_source(&self) -> Result<String, io::Error> {
+        if let Some(opt) = &self.symbols {
+            let path = if let Some(userpath) = opt {
+                userpath.clone()
+            } else {
+                let mut inferredpath = self.input.clone();
+                inferredpath.set_extension("sym");
+                inferredpath
+            };
+
+            let mut input: Box<dyn io::Read> = if path == PathBuf::from("-") {
+                Box::new(io::stdin().lock()) as Box<dyn io::Read>
+            } else {
+                Box::new(fs::File::open(path)?) as Box<dyn io::Read>
+            };
+
+            let mut buf = String::new();
+            input.read_to_string(&mut buf)?;
+            Ok(buf)
+        } else {
+            // we don't want to read the symbol table
+            Ok(String::new())
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let args = Args::parse();
 
     if args.dissasemble {
-        todo!()
+        let mut r = args.get_object_read()?;
+        let mut prog = Program::read(&mut r)?;
+        let symbols = args.get_symbol_source()?;
+        prog.load_symbols(&symbols)?;
+        print!("{}", prog);
     } else {
         let source = args.get_assembly_source()?;
         let prog = assemble_program(&source)?;
