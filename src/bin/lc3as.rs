@@ -27,14 +27,20 @@ Examples:
      # assemble prog.asm and write the object code to prog.obj
      lc3as prog.asm
 
-     # as above, but also read symbol table from prog.sym
+     # assemble prog.asm, write object code to prog.obj, write symbols to prog.sym
      lc3as prog.asm -s
 
-     # as above, but write object code to myfile.obj and symbols to stdout
+     # assemble prog.asm, write object code to myfile.obj, write symbols to stdout
      lc3as prog.asm -s- -o myfile.obj
 
-     # disassemble input.obj, write assembly to input.asm
-     lc3as -D input.obj
+     # disassemble prog.obj, write assembly to prog.asm
+     lc3as -D prog.obj
+
+     # disassemble prog.obj, read symbols from prog.sym, write assembly to prog.asm
+     lc3as -D prog.obj -s
+
+     # disassemble prog.obj, read symbols from stdin, write assembly to myfile.asm
+     lc3as -D prog.obj -s- -o myfile.asm
 "#;
 
 #[derive(Parser)]
