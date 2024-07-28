@@ -45,7 +45,6 @@ Examples:
 
 #[derive(Parser)]
 #[command(author, version, about = "an LC3 assembler/disassembler", long_about=LONG_ABOUT)]
-/// test test test
 struct Args {
     /// Disassemble object code (default: <INFILE>.obj)
     #[arg(short = 'D', long, default_value_t = false)]

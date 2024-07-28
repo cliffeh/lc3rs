@@ -1,7 +1,7 @@
 use lc3::asm::assemble_program;
 use lc3::Program;
 use rstest::rstest;
-use std::io::{Cursor, Read, Write};
+use std::io::Read;
 use std::{fs, path::PathBuf};
 
 #[rstest]

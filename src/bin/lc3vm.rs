@@ -1,9 +1,24 @@
+use clap::Parser;
 use lc3::vm::VirtualMachine;
 use std::io::Write; // for flush()
-use std::{env, fs, io, process};
+use std::{fs, io, path, process};
 use termios::{tcsetattr, Termios, ECHO, ICANON, TCSANOW};
 
+static LONG_ABOUT: &str = r#"
+This program loads and executes LC3 programs.
+"#;
+
+#[derive(Parser)]
+#[command(author, version, about = "an LC3 virtual machine", long_about=LONG_ABOUT)]
+struct Args {
+    /// Read input from FILE [required]
+    #[arg(value_name = "INFILE", required = true)]
+    input: path::PathBuf,
+}
+
 pub fn main() {
+    let args = Args::parse();
+
     // Save the current terminal settings (0 == stdin)
     let termios = Termios::from_fd(0).unwrap();
     let mut new_termios = termios.clone();
@@ -31,8 +46,7 @@ pub fn main() {
     });
 
     let mut vm = VirtualMachine::new();
-    let filename = env::args().nth(1).expect("Expected file argument");
-    let mut infile = fs::File::open(filename).unwrap();
+    let mut infile = fs::File::open(args.input).unwrap();
 
     // TODO handle result
     let _ = vm.load(&mut infile);
