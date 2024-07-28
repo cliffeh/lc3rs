@@ -124,15 +124,21 @@ impl<'p> Program {
                 let op: Op = (self.instructions[iaddr] >> 12).into();
                 match op {
                     Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
-                        let saddr = sign_extend(self.instructions[iaddr] & 0x1ff, 9).wrapping_add(iaddr as u16).wrapping_add(1);
+                        let saddr = sign_extend(self.instructions[iaddr] & 0x1ff, 9)
+                            .wrapping_add(iaddr as u16)
+                            .wrapping_add(1);
                         if let Some(label) = self.symtab.lookup_symbol_by_address(saddr as usize) {
                             self.symtab.insert_ref(iaddr, label.clone());
                         }
                     }
                     Op::JSR => {
                         if self.instructions[iaddr] & (1 << 11) != 0 {
-                            let saddr = sign_extend(self.instructions[iaddr] & 0x7ff, 11).wrapping_add(iaddr as u16).wrapping_add(1);
-                            if let Some(label) = self.symtab.lookup_symbol_by_address(saddr as usize) {
+                            let saddr = sign_extend(self.instructions[iaddr] & 0x7ff, 11)
+                                .wrapping_add(iaddr as u16)
+                                .wrapping_add(1);
+                            if let Some(label) =
+                                self.symtab.lookup_symbol_by_address(saddr as usize)
+                            {
                                 self.symtab.insert_ref(iaddr, label.clone());
                             }
                         }
@@ -140,7 +146,6 @@ impl<'p> Program {
                     _ => {}
                 }
             }
-
         }
     }
 
