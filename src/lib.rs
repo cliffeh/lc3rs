@@ -1,12 +1,17 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Error, Read, Write};
+use std::io::Write;
+use std::{fmt, io};
 pub mod asm;
 pub mod vm;
-pub use asm::assemble;
-use std::fmt;
-use vm::{COND_NEG, COND_POS, COND_ZRO};
+
+use asm::{parse_symbol_table, ParseError};
+use thiserror::Error;
+// use vm::{COND_NEG, COND_POS, COND_ZRO};
 
 pub const MEMORY_MAX: usize = 1 << 16;
+
+/// Top 4 bits of an instruction, indicating what operation it is
+#[repr(u16)]
 
 pub enum Op {
     BR = 0, /* branch */
@@ -27,6 +32,7 @@ pub enum Op {
     TRAP,   /* execute trap */
 }
 
+/// Trap vectors
 pub enum Trap {
     GETC = 0x20,  /* get character from keyboard, not echoed */
     OUT = 0x21,   /* output a character */
@@ -37,310 +43,236 @@ pub enum Trap {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Reg {
-    R0 = 0,
-    R1,
-    R2,
-    R3,
-    R4,
-    R5,
-    R6,
-    R7,
+pub enum Hint {
+    Fill,
+    Stringz,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Instruction {
-    // ops
-    Add(Reg, Reg, Option<Reg>, Option<u16>),
-    And(Reg, Reg, Option<Reg>, Option<u16>),
-    Br(u16, Option<u16>, Option<String>),
-    Jmp(Reg),
-    Jsr(Option<u16>, Option<String>),
-    Jsrr(Reg),
-    Ld(Reg, Option<u16>, Option<String>),
-    Ldi(Reg, Option<u16>, Option<String>),
-    Ldr(Reg, Reg, u16),
-    Lea(Reg, Option<u16>, Option<String>),
-    Not(Reg, Reg),
-    Rti,
-    St(Reg, Option<u16>, Option<String>),
-    Sti(Reg, Option<u16>, Option<String>),
-    Str(Reg, Reg, u16),
-    Trap(u16),
-
-    // assembler directives
-    Fill(Option<u16>, Option<String>),
-    Stringz(Vec<u8>),
-}
-
+#[derive(Debug, PartialEq)]
 pub struct Program {
     /// Origin address of the program
-    pub orig: u16,
-    /// Instructions of the program
-    pub mem: Vec<u16>,
-    /// Symbol table
-    pub syms: HashMap<String, u16>,
-    /// Used for assembly, this maps relative instruction addresses onto the
-    /// symbols they reference and the mask to use when resolving the address
-    /// of the symbol.
-    pub refs: HashMap<u16, (String, Option<u16>)>,
+    origin: u16,
+    /// List of instructions that comprise the program
+    instructions: Vec<u16>,
+    /// Symbol table, containing addresses of symbols and assembler directive hints
+    symtab: SymbolTable,
 }
 
-impl Program {
+impl<'p> Program {
     /// Creates a new program.
-    pub fn new(orig: u16, mem: Vec<u16>) -> Program {
+    pub fn new(origin: u16, instructions: Vec<u16>, symtab: SymbolTable) -> Self {
         Program {
-            orig,
-            mem,
-            syms: HashMap::new(),
-            refs: HashMap::new(),
+            origin,
+            instructions,
+            symtab,
         }
     }
 
-    /// Dumps the symbol table for this program. The format is one symbol per line,
-    /// relative to `self.orig` sorted in address order. The symbol table will also
-    /// optionally include a comma-delimited list of the instructions that reference
-    /// each symbol.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    ///
-    /// let mut prog = Program::default();
-    /// prog.orig = 0x3000;
-    /// prog.syms.insert(String::from("foo"), 0x20);
-    /// prog.syms.insert(String::from("bar"), 0x1200);
-    ///
-    /// let mut buf: Vec<u8> = vec![];
-    /// prog.dump_symbols(&mut buf);
-    ///
-    /// let mut s = String::from_utf8(buf).unwrap();
-    /// let mut actual = s.split("\n");
-    ///
-    /// assert_eq!(actual.next().unwrap(), "x3020 foo");
-    /// assert_eq!(actual.next().unwrap(), "x4200 bar");
-    /// ```
-    pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, Error> {
-        let mut n: usize = 0;
-        let mut symvec: Vec<(&String, &u16)> = self.syms.iter().collect();
-        symvec.sort_by(|(_, addr1), (_, addr2)| addr1.cmp(addr2));
-        for (sym, saddr) in symvec {
-            n += w.write(format!("x{:04x} {}", saddr + self.orig, sym).as_bytes())?;
-
-            let refs: Vec<String> = self
-                .lookup_references_by_symbol(sym)
-                .into_iter()
-                .map(|iaddr| format!("x{:04X}", iaddr))
-                .collect();
-            if refs.len() > 0 {
-                n += w.write(&[b' '])?;
-                n += w.write(refs.join(",").as_bytes())?;
-            }
-            n += w.write(&[b'\n'])?;
-        }
-        Ok(n)
+    pub fn load_symbols(&mut self, source: &str) -> Result<&SymbolTable, ParseError> {
+        self.symtab = parse_symbol_table(source)?;
+        Ok(&self.symtab)
     }
 
-    /// Loads the symbol table for this program, per the format specified in `dump_symbols()`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let mut br = BufReader::new("x3020 foo x1,x2\nx4200 bar".as_bytes());
-    /// let _ = prog.load_symbols(&mut br);
-    ///
-    /// assert_eq!(prog.syms.get("foo").unwrap(), &0x3020u16);
-    /// assert_eq!(prog.syms.get("bar").unwrap(), &0x4200u16);
-    /// // also check that it loaded refs correctly
-    /// assert_eq!(prog.refs.get(&0x1u16).unwrap().0, "foo".to_string());
-    /// assert_eq!(prog.refs.get(&0x2u16).unwrap().0, "foo".to_string());
-    ///
-    /// ```
-    pub fn load_symbols(&mut self, r: &mut dyn Read) -> Result<(), Error> {
-        for res in BufReader::new(r).lines().into_iter() {
-            let line = res.unwrap();
-            let mut split = line.split(" ").into_iter();
-            let s = &split.next().unwrap()[1..];
-
-            let addr = u16::from_str_radix(&s, 16).unwrap();
-            let symbol = String::from(split.next().unwrap());
-
-            self.syms.insert(symbol.clone(), addr);
-
-            if let Some(rest) = split.next() {
-                let refstr = rest.split(",");
-                for s in refstr {
-                    let iaddr = u16::from_str_radix(&s[1..], 16).unwrap();
-                    self.refs.insert(iaddr, (symbol.clone(), None));
+    /// Resolves symbols to their actual addresses and populates instructions accordingly.
+    pub fn resolve_symbols(&mut self) -> Result<(), SymbolError> {
+        // for each instruction
+        for iaddr in 0..self.instructions.len() {
+            // if that instruction references a label
+            if let Some(label) = self.symtab.get_ref(&iaddr) {
+                // get the address of that label
+                if let Some(&saddr) = &self.symtab.get_symbol_address(label) {
+                    if let Some(Hint::Fill) = self.symtab.get_hint(&iaddr) {
+                        // for .FILL we want the "raw" address of the label relative to the program's origin
+                        self.instructions[iaddr] = self.origin.wrapping_add(saddr as u16);
+                    } else {
+                        // for operations we want the offset of the label relative to the incremented PC
+                        let op = Op::from(self.instructions[iaddr] >> 12);
+                        match op {
+                            Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
+                                // PCoffset9
+                                self.instructions[iaddr] |=
+                                    ((saddr as isize - iaddr as isize - 1) as u16) & 0x1ff;
+                            }
+                            Op::JSR => {
+                                // PCoffset11
+                                self.instructions[iaddr] |=
+                                    ((saddr as isize - iaddr as isize - 1) as u16) & 0x7ff;
+                            }
+                            _ => {
+                                return Err(SymbolError::UnexpectedSymbol(format!(
+                                    "{} doesn't take a symbol argument",
+                                    op
+                                )));
+                            }
+                        }
+                    }
+                } else {
+                    return Err(SymbolError::UndefinedSymbol(label.into()));
                 }
             }
         }
-
         Ok(())
     }
 
-    /// Walks through all symbol references in `self.refs` and updates their respective
-    /// instructions using the actual address of the symbol, masked appropriately for
-    /// the instruction. Panics if there is an undefined symbol.
-    pub fn resolve_symbols(&mut self) {
-        // instruction address
-        for (iaddr, (symbol, maskopt)) in self.refs.iter() {
-            // symbol address
-            if let Some(saddr) = self.syms.get(symbol) {
-                if let Some(mask) = maskopt {
-                    // relative to the incremented PC
-                    self.mem[*iaddr as usize] |=
-                        ((*saddr as i16 - *iaddr as i16 - 1) & *mask as i16) as u16;
-                } else {
-                    self.mem[*iaddr as usize] = (self.orig + saddr) as u16; // .FILL
+    pub fn infer_references(&mut self) {
+        for iaddr in 0..self.instructions.len() {
+            if let Some(Hint::Fill) = self.symtab.get_hint(&iaddr) {
+                let saddr = self.instructions[iaddr].wrapping_sub(self.origin);
+                if let Some(label) = self.symtab.lookup_symbol_by_address(saddr as usize) {
+                    self.symtab.insert_ref(iaddr, label.clone());
                 }
             } else {
-                panic!("undefined symbol: {}", symbol);
+                let op: Op = (self.instructions[iaddr] >> 12).into();
+                match op {
+                    Op::BR | Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
+                        let saddr = sign_extend(self.instructions[iaddr] & 0x1ff, 9)
+                            .wrapping_add(iaddr as u16)
+                            .wrapping_add(1);
+                        if let Some(label) = self.symtab.lookup_symbol_by_address(saddr as usize) {
+                            self.symtab.insert_ref(iaddr, label.clone());
+                        }
+                    }
+                    Op::JSR => {
+                        if self.instructions[iaddr] & (1 << 11) != 0 {
+                            let saddr = sign_extend(self.instructions[iaddr] & 0x7ff, 11)
+                                .wrapping_add(iaddr as u16)
+                                .wrapping_add(1);
+                            if let Some(label) =
+                                self.symtab.lookup_symbol_by_address(saddr as usize)
+                            {
+                                self.symtab.insert_ref(iaddr, label.clone());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
     }
 
-    /// Does a reverse lookup of a symbol, given its address.
-    ///
-    /// Returns Option<u16>, as the address passed in might not reference a symbol
-    /// (i.e., might be intended as a literal).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let mut br = BufReader::new("x3020 foo\nx4200 bar".as_bytes());
-    /// let _ = prog.load_symbols(&mut br);
-    ///
-    /// assert_eq!(prog.lookup_symbol_by_address(0x3020).unwrap(), &"foo".to_string());
-    /// assert_eq!(prog.lookup_symbol_by_address(0x4200).unwrap(), &"bar".to_string());
-    /// ```
-    pub fn lookup_symbol_by_address(&self, addr: u16) -> Option<&String> {
-        for (symbol, saddr) in self.syms.iter() {
+    pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, io::Error> {
+        w.write(format!("{}", self.symtab).as_bytes())
+    }
+
+    /// Reads a program in from `r`
+    pub fn read(r: &mut dyn io::Read) -> Result<Program, io::Error> {
+        let mut buf: Vec<u8> = vec![];
+        if r.read_to_end(&mut buf)? % 2 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "odd number of bytes in input",
+            ));
+        }
+
+        let origin = u16::from_be_bytes([buf[0], buf[1]]);
+
+        let mut instructions: Vec<u16> = vec![];
+        for i in (2..buf.len()).step_by(2) {
+            instructions.push(u16::from_be_bytes([buf[i], buf[i + 1]]));
+        }
+
+        Ok(Program::new(origin, instructions, SymbolTable::default()))
+    }
+
+    /// Writes the program out to `w`.
+    pub fn write(&self, w: &mut dyn io::Write) -> Result<usize, io::Error> {
+        let mut n: usize = 0;
+        n += w.write(&u16::to_be_bytes(self.origin as u16))?;
+        for instruction in &self.instructions {
+            n += w.write(&u16::to_be_bytes(*instruction))?;
+        }
+        Ok(n)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SymbolTable {
+    /// Map of symbols to their respective addresses within a program
+    symbols: HashMap<String, usize>,
+    /// Map of addresses to assembler directive hints
+    hints: HashMap<usize, Hint>,
+    /// Map of addresses to symbol references
+    refs: HashMap<usize, String>,
+}
+
+#[derive(Error, Clone, Debug, PartialEq)]
+pub enum SymbolError {
+    #[error("duplicate symbol: {0}")]
+    DuplicateSymbol(String),
+
+    #[error("undefined symbol: {0}")]
+    UndefinedSymbol(String),
+
+    #[error("unexpected symbol: {0}")]
+    UnexpectedSymbol(String),
+}
+
+impl SymbolTable {
+    pub fn new(
+        symbols: HashMap<String, usize>,
+        hints: HashMap<usize, Hint>,
+        refs: HashMap<usize, String>,
+    ) -> SymbolTable {
+        SymbolTable {
+            symbols,
+            hints,
+            refs,
+        }
+    }
+    pub fn insert_symbol(&mut self, label: String, addr: usize) -> Option<usize> {
+        self.symbols.insert(label, addr)
+    }
+
+    pub fn get_symbol_address(&self, label: &String) -> Option<&usize> {
+        self.symbols.get(label)
+    }
+
+    pub fn insert_hint(&mut self, addr: usize, hint: Hint) -> Option<Hint> {
+        self.hints.insert(addr, hint)
+    }
+
+    pub fn get_hint(&self, addr: &usize) -> Option<&Hint> {
+        self.hints.get(addr)
+    }
+
+    pub fn insert_ref(&mut self, addr: usize, label: String) -> Option<String> {
+        self.refs.insert(addr, label)
+    }
+
+    pub fn get_ref(&self, addr: &usize) -> Option<&String> {
+        self.refs.get(addr)
+    }
+
+    /// Does a reverse lookup of a symbol, given its address
+    pub fn lookup_symbol_by_address(&self, addr: usize) -> Option<&String> {
+        for (symbol, saddr) in self.symbols.iter() {
             if *saddr == addr {
                 return Some(symbol);
             }
         }
         None
     }
-
-    /// Does a reverse lookup of all relative instruction addresses that reference `sym`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use lc3::Program;
-    /// use std::io::BufReader;
-    ///
-    /// let mut prog = Program::default();
-    ///
-    /// let _ = prog.refs.insert(0x1, ("foo".to_string(), None));
-    /// let _ = prog.refs.insert(0x2, ("foo".to_string(), None));
-    ///
-    /// let expected: Vec<u16> = vec![1u16, 2u16];
-    /// let mut actual = prog.lookup_references_by_symbol(&"foo".to_string());
-    /// actual.sort(); // not guaranteed to be in-order
-    ///
-    /// assert_eq!(actual, expected);
-    /// ```
-    pub fn lookup_references_by_symbol(&self, sym: &String) -> Vec<u16> {
-        let mut refs: Vec<u16> = vec![];
-        for (iaddr, (symbol, _mask)) in self.refs.iter() {
-            if *symbol == *sym {
-                refs.push(*iaddr);
-            }
-        }
-        refs
-    }
-
-    /// Reads an LC3 program from `r`.
-    pub fn read(r: &mut dyn Read) -> Result<Program, Error> {
-        let mut buf: [u8; 2] = [0, 0];
-        r.read_exact(&mut buf)?;
-        let orig = u16::from_be_bytes(buf);
-
-        let mut mem: Vec<u16> = vec![];
-
-        loop {
-            if r.read(&mut buf)? == 0 {
-                // TODO error on size other than 0 or 2
-                break;
-            }
-            mem.push(u16::from_be_bytes(buf));
-        }
-
-        Ok(Program::new(orig, mem))
-    }
-
-    /// Writes the program out to `w`.
-    pub fn write(&self, w: &mut dyn Write) -> Result<usize, Error> {
-        let mut n: usize = 0;
-        n += w.write(&u16::to_be_bytes(self.orig as u16))?;
-        for inst in &self.mem {
-            n += w.write(&u16::to_be_bytes(*inst))?;
-        }
-        Ok(n)
-    }
 }
+
+/* defaults */
 
 impl Default for Program {
     fn default() -> Self {
-        Program {
-            orig: 0x3000,
-            mem: vec![],
-            syms: HashMap::new(),
-            refs: HashMap::new(),
-        }
+        Program::new(0x3000, vec![], SymbolTable::default())
     }
 }
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        SymbolTable::new(HashMap::new(), HashMap::new(), HashMap::new())
+    }
+}
+
+/* conversion functions */
 
 impl From<u16> for Op {
     fn from(value: u16) -> Self {
-        match value {
-            0x0 => Op::BR,
-            0x1 => Op::ADD,
-            0x2 => Op::LD,
-            0x3 => Op::ST,
-            0x4 => Op::JSR,
-            0x5 => Op::AND,
-            0x6 => Op::LDR,
-            0x7 => Op::STR,
-            0x8 => Op::RTI,
-            0x9 => Op::NOT,
-            0xA => Op::LDI,
-            0xB => Op::STI,
-            0xC => Op::JMP,
-            0xD => Op::RES,
-            0xE => Op::LEA,
-            0xF => Op::TRAP,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<u8> for Reg {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Reg::R0,
-            1 => Reg::R1,
-            2 => Reg::R2,
-            3 => Reg::R3,
-            4 => Reg::R4,
-            5 => Reg::R5,
-            6 => Reg::R6,
-            7 => Reg::R7,
-            _ => unreachable!(),
-        }
+        unsafe { std::mem::transmute(value) }
     }
 }
 
@@ -360,229 +292,62 @@ impl TryFrom<u16> for Trap {
     }
 }
 
-impl fmt::Display for Program {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, ".ORIG x{:04X}", self.orig)?;
+/* utilities */
 
-        for iaddr in 0..self.mem.len() {
-            // write!(f, "x{:04X} ", iaddr)?;
+pub fn sign_extend(x: u16, count: usize) -> u16 {
+    if ((x >> (count - 1)) & 1) != 0 {
+        x | (0xFFFF << count)
+    } else {
+        x
+    }
+}
 
-            if let Some(symbol) = self.lookup_symbol_by_address(iaddr as u16 + self.orig) {
-                write!(f, "{} ", symbol)?;
-            }
+/// Escapes the input character.
+/// // TODO write a test
+fn escape(c: char) -> String {
+    let mut result = String::new();
 
-            let inst = self.mem[iaddr];
-
-            if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                if let Some(saddr) = self.syms.get(symbol) {
-                    // do you believe in coincidence?
-                    if *saddr == inst {
-                        writeln!(f, ".FILL {}", symbol)?;
-                        continue;
-                    }
-                }
-            }
-
-            match Op::from(inst >> 12) {
-                Op::ADD => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr1 = (inst >> 6) & 0x7;
-                    let imm = (inst >> 5) & 0x1;
-
-                    if imm == 0 {
-                        // 3 registers
-                        let sr2 = inst & 0x7;
-                        if inst & (0x7 << 2) == 0 {
-                            writeln!(f, "ADD R{}, R{}, R{}", dr, sr1, sr2)?;
-                        } else {
-                            writeln!(f, ".FILL x{:04X}", inst)?;
-                        }
-                    } else {
-                        let imm5 = sign_extend(inst & 0x1f, 5) as i16;
-                        writeln!(f, "ADD R{}, R{}, #{}", dr, sr1, imm5)?;
-                    }
-                }
-                Op::AND => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr1 = (inst >> 6) & 0x7;
-                    let imm = (inst >> 5) & 0x1;
-
-                    if imm == 0 {
-                        // 3 registers
-                        let sr2 = inst & 0x7;
-                        if inst & (0x7 << 2) == 0 {
-                            writeln!(f, "AND R{}, R{}, R{}", dr, sr1, sr2)?;
-                        } else {
-                            writeln!(f, ".FILL x{:04X}", inst)?;
-                        }
-                    } else {
-                        let imm5 = sign_extend(inst & 0x1f, 5) as i16;
-                        writeln!(f, "AND R{}, R{}, #{}", dr, sr1, imm5)?;
-                    }
-                }
-                Op::BR => {
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-                    let flags = (inst >> 9) & 0x7;
-
-                    write!(f, "BR")?;
-
-                    if flags & COND_NEG == COND_NEG {
-                        write!(f, "n")?;
-                    }
-                    if flags & COND_ZRO == COND_ZRO {
-                        write!(f, "z")?;
-                    }
-                    if flags & COND_POS == COND_POS {
-                        write!(f, "p")?;
-                    }
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::JMP => {
-                    if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
-                        let base_r = (inst >> 6) & 0x7;
-                        if base_r == 7 {
-                            writeln!(f, "RET")?;
-                        } else {
-                            writeln!(f, "JMP R{}", base_r)?;
-                        }
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::JSR => {
-                    let flag = (inst >> 11) & 0x1;
-                    if flag == 0 {
-                        // JSRR
-                        if inst & (7 << 9) == 0 && inst & 0x3f == 0 {
-                            let base_r = (inst >> 6) & 0x7;
-                            writeln!(f, "JSRR R{}", base_r)?;
-                        } else {
-                            writeln!(f, ".FILL {:04X}", inst)?;
-                        }
-                    } else {
-                        let pcoffset11 = inst & 0x7ff;
-
-                        write!(f, "JSR")?;
-
-                        if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                            writeln!(f, " {}", symbol)?;
-                        } else {
-                            writeln!(f, " x{:04X}", pcoffset11)?;
-                        }
-                    }
-                }
-                Op::LD => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LD R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::LDI => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LDI R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::LDR => {
-                    let dr = (inst >> 9) & 0x7;
-                    let base_r = (inst >> 6) & 0x7;
-                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
-                    writeln!(f, "LDR R{}, R{}, #{}", dr, base_r, offset6)?;
-                }
-                Op::LEA => {
-                    let dr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "LEA R{},", dr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::NOT => {
-                    let dr = (inst >> 9) & 0x7;
-                    let sr = (inst >> 6) & 0x7;
-
-                    writeln!(f, "NOT R{}, R{}", dr, sr)?;
-                }
-                Op::ST => {
-                    let sr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "ST R{},", sr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::STI => {
-                    let sr = (inst >> 9) & 0x7;
-                    let pcoffset9 = sign_extend(inst & 0x1ff, 9);
-
-                    write!(f, "STI R{},", sr)?;
-
-                    if let Some((symbol, _mask)) = self.refs.get(&(iaddr as u16)) {
-                        writeln!(f, " {}", symbol)?;
-                    } else {
-                        writeln!(f, " x{:04X}", pcoffset9)?;
-                    }
-                }
-                Op::STR => {
-                    let sr = (inst >> 9) & 0x7;
-                    let base_r = (inst >> 6) & 0x7;
-                    let offset6 = sign_extend(inst & 0x3f, 6) as i16;
-                    writeln!(f, "STR R{}, R{}, #{}", sr, base_r, offset6)?;
-                }
-                Op::TRAP => {
-                    if inst & (0xf << 8) == 0 {
-                        if let Ok(trap) = Trap::try_from(inst & 0x00ff) {
-                            writeln!(f, "{}", trap)?;
-                        } else {
-                            let trapvect8 = inst & 0x00ff;
-                            writeln!(f, "TRAP x{:04X}", trapvect8)?;
-                        }
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::RTI => {
-                    if inst == 1 << 15 {
-                        writeln!(f, "RTI")?;
-                    } else {
-                        writeln!(f, ".FILL x{:04X}", inst)?;
-                    }
-                }
-                Op::RES => {
-                    // reserved, so we'll just always assume this is a .FILL
-                    writeln!(f, ".FILL x{:04X}", inst)?;
-                }
-            }
+    match c {
+        '\n' => result.push_str("\\n"),
+        '\t' => result.push_str("\\t"),
+        '\r' => result.push_str("\\r"),
+        '\\' => result.push_str("\\\\"),
+        '\'' => result.push_str("\\'"),
+        '\"' => result.push_str("\\\""),
+        '\0' => result.push_str("\\0"),
+        '\x1B' => result.push_str("\\e"), // ANSI escape character
+        _ if c.is_control() => {
+            // Handle other control characters with hexadecimal escape sequence
+            result.push_str(&format!("\\x{:02X}", c as u8));
         }
+        _ => result.push(c),
+    }
 
-        writeln!(f, ".END")?;
+    result
+}
 
-        Ok(())
+/* formatting */
+
+impl fmt::Display for Op {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Op::BR => "BR",
+            Op::ADD => "ADD",
+            Op::LD => "LD",
+            Op::ST => "ST",
+            Op::JSR => "JSR",
+            Op::AND => "AND",
+            Op::LDR => "LDR",
+            Op::STR => "STR",
+            Op::RTI => "RTI",
+            Op::NOT => "NOT",
+            Op::LDI => "LDI",
+            Op::STI => "STI",
+            Op::JMP => "JMP",
+            Op::RES => "RES",
+            Op::LEA => "LEA",
+            Op::TRAP => "TRAP",
+        })
     }
 }
 
@@ -599,11 +364,172 @@ impl fmt::Display for Trap {
     }
 }
 
-// utility
-pub fn sign_extend(x: u16, count: usize) -> u16 {
-    if ((x >> (count - 1)) & 1) != 0 {
-        x | (0xFFFF << count)
-    } else {
-        x
+impl fmt::Display for Hint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Hint::Fill => f.write_str("_FILL"),
+            Hint::Stringz => f.write_str("_STRINGZ"),
+        }
+    }
+}
+
+impl fmt::Display for Program {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, ".ORIG x{:04X}", self.origin)?;
+
+        let mut iaddr = 0;
+        while iaddr < self.instructions.len() {
+            if let Some(label) = self.symtab.lookup_symbol_by_address(iaddr) {
+                write!(f, "{} ", label)?;
+            }
+
+            if let Some(hint) = self.symtab.get_hint(&iaddr) {
+                match hint {
+                    Hint::Fill => {
+                        if let Some(label) = self.symtab.get_ref(&iaddr) {
+                            writeln!(f, ".FILL {}", label)?;
+                        } else {
+                            writeln!(f, ".FILL x{:04X}", self.instructions[iaddr])?;
+                        }
+                    }
+                    Hint::Stringz => {
+                        f.write_str(".STRINGZ \"")?;
+                        while self.instructions[iaddr] != 0 {
+                            let b = (self.instructions[iaddr] & 0xff) as u8;
+                            write!(f, "{}", escape(b as char))?;
+                            iaddr += 1;
+                        }
+                        writeln!(f, "\"")?;
+                    }
+                }
+            } else {
+                let inst = self.instructions[iaddr];
+                let op: Op = (inst >> 12).into();
+                let mut s: String = format!("{}", op);
+
+                match op {
+                    Op::ADD | Op::AND => {
+                        s += format!(" R{}, R{}, ", (inst >> 9) & 0b111, (inst >> 6) & 0b111)
+                            .as_str();
+                        if (inst & (1 << 5)) != 0 {
+                            s += format!("#{}", sign_extend(inst & 0x1f, 5) as i16).as_str();
+                        } else if inst & (0b11 << 3) != 0 {
+                            // invalid ADD|AND if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            s += format!("R{}", inst & 0b111).as_str();
+                        }
+                    }
+                    Op::BR => {
+                        if inst & (0b111 << 9) == 0 {
+                            // invalid BR if these bits aren't set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            if inst & (1 << 11) != 0 {
+                                s += "n";
+                            }
+                            if inst & (1 << 10) != 0 {
+                                s += "z";
+                            }
+                            if inst & (1 << 9) != 0 {
+                                s += "p";
+                            }
+                            if let Some(label) = self.symtab.get_ref(&iaddr) {
+                                s += format!(" {}", label).as_str();
+                            } else {
+                                s += format!(" x{:04X}", inst & 0x1ff).as_str();
+                            }
+                        }
+                    }
+                    Op::JMP => {
+                        if inst & ((0b111 << 9) | (0b11111)) != 0 {
+                            // invalid JMP|RET if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            let r1 = (inst >> 6) & 0b111;
+                            if r1 == 7 {
+                                s = String::from("RET");
+                            } else {
+                                s += format!(" R{}", (inst >> 6) & 0b111).as_str();
+                            }
+                        }
+                    }
+                    Op::JSR => {
+                        if inst & (1 << 11) != 0 {
+                            if let Some(label) = self.symtab.get_ref(&iaddr) {
+                                s += format!(" {}", label).as_str();
+                            } else {
+                                s += format!(" x{:04X}", inst & 0x7ff).as_str();
+                            }
+                        } else {
+                            s = format!("JSRR R{}", (inst >> 6) & 0b111);
+                        }
+                    }
+                    Op::LD | Op::LDI | Op::LEA | Op::ST | Op::STI => {
+                        let r1 = (inst >> 9) & 0b111;
+                        s += format!(" R{}, ", r1).as_str();
+                        if let Some(label) = self.symtab.get_ref(&iaddr) {
+                            s += format!("{}", label).as_str();
+                        } else {
+                            s += format!("x{:04X}", inst & 0x1ff).as_str();
+                        }
+                    }
+                    Op::LDR | Op::STR => {
+                        s += format!(
+                            " R{}, R{}, #{}",
+                            (inst >> 9) & 0b111,
+                            (inst >> 6) & 0b111,
+                            sign_extend(inst & 0x3ff, 6) as i16
+                        )
+                        .as_str();
+                    }
+                    Op::NOT => {
+                        if inst & 0b111111 == 0 {
+                            // invalid NOT if these bits aren't set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            s += format!(" R{}, R{}", (inst >> 9) & 0b111, (inst >> 6) & 0b111)
+                                .as_str();
+                        }
+                    }
+                    Op::TRAP => {
+                        if inst & (0b1111 << 8) != 0 {
+                            // invalid TRAP if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        } else {
+                            let trapvect8 = inst & 0xff;
+                            if let Ok(trap) = Trap::try_from(trapvect8) {
+                                s = format!("{}", trap);
+                            } else {
+                                s += format!(" x{:04X}", trapvect8).as_str();
+                            }
+                        }
+                    }
+                    Op::RTI => {
+                        if inst & 0xfff != 0 {
+                            // invalid RTI if these bits are set
+                            s = format!(".FILL x{:04X}", inst);
+                        }
+                    }
+                    Op::RES => unimplemented!(),
+                }
+                writeln!(f, "{}", s)?;
+            }
+
+            iaddr += 1;
+        }
+        writeln!(f, ".END")
+    }
+}
+
+impl fmt::Display for SymbolTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        for (symbol, addr) in self.symbols.iter() {
+            writeln!(f, "x{addr:04x} {symbol}")?;
+        }
+        for (addr, hint) in self.hints.iter() {
+            writeln!(f, "x{addr:04x} {hint}")?;
+        }
+        Ok(())
     }
 }

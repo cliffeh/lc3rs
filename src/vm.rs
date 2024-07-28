@@ -38,9 +38,9 @@ impl VirtualMachine {
 
     pub fn load(&mut self, r: &mut dyn Read) -> Result<(), Error> {
         let prog = Program::read(r)?;
-        let orig = prog.orig as usize;
-        for pos in 0..prog.mem.len() {
-            self.mem[pos + orig] = prog.mem[pos];
+        let orig = prog.origin as usize;
+        for pos in 0..prog.instructions.len() {
+            self.mem[pos + orig] = prog.instructions[pos];
         }
         Ok(())
     }

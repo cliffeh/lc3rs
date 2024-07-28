@@ -1,44 +1,27 @@
-use crate::{Instruction, Program, Reg, Trap};
-use lalrpop_util::lalrpop_mod;
-use logos::{Lexer, Logos};
-use std::{
-    io::{Error, Read},
-    num::ParseIntError,
-};
+use crate::{Hint, Op, Program, SymbolError, SymbolTable, Trap};
+use logos::{Lexer, Logos, Skip};
+use std::{collections::HashMap, num::ParseIntError};
 use thiserror::Error;
 
-lalrpop_mod!(#[allow(overflowing_literals)] pub parser);
-
-pub fn assemble(r: &mut dyn Read) -> Result<Program, Error> {
-    let mut prog = Program::default();
-    let parser = parser::ProgramParser::new();
-    let mut buf = String::new();
-
-    r.read_to_string(&mut buf)?;
-    parser.parse(&mut prog, buf.as_str()).unwrap(); // TODO unsafe unwrap
-
-    prog.resolve_symbols();
-
-    Ok(prog)
-}
-
 #[derive(Logos, Clone, Debug, PartialEq)]
-#[logos(error = ParseError)]
-#[logos(skip r"([ \t\r\n]+|;.*)")] // ignore whitespace and comments
+#[logos(error = LexError)]
+#[logos(extras = (u32,))] // line number
+#[logos(skip r"([ \t\r]+|;.*)")] // ignore whitespace and comments
 pub enum Token {
-    /* op codes */
+    /* operations */
     /// ```
+    /// use lc3::Op;
     /// use lc3::asm::Token;
     /// use logos::Logos;
     ///
-    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR(0b111))));
-    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR(0b111))));
-    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR(0b100))));
-    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR(0b010))));
-    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR(0b001))));
-    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR(0b110))));
-    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR(0b101))));
-    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR(0b011))));
+    /// assert_eq!(Token::lexer("BR").next(),    Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b111 << 9)))));
+    /// assert_eq!(Token::lexer("BRn").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b100 << 9)))));
+    /// assert_eq!(Token::lexer("BRz").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b010 << 9)))));
+    /// assert_eq!(Token::lexer("BRp").next(),   Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b001 << 9)))));
+    /// assert_eq!(Token::lexer("BRnz").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b110 << 9)))));
+    /// assert_eq!(Token::lexer("BRnp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b101 << 9)))));
+    /// assert_eq!(Token::lexer("BRzp").next(),  Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b011 << 9)))));
+    /// assert_eq!(Token::lexer("BRnzp").next(), Some(Ok(Token::BR((Op::BR as u16) << 12 | (0b111 << 9)))));
     /// ```
     #[regex(r"BRn?z?p?",
      callback = |lex| {
@@ -56,78 +39,57 @@ pub enum Token {
         if flags == 0 {
             flags = 0b111;
         }
-        flags
+        ((Op::BR as u16) << 12) | (flags << 9)
     }, ignore(ascii_case))]
-    BR(u16), /* branch */
-    #[token("ADD", ignore(ascii_case))]
-    ADD, /* add  */
-    #[token("LD", ignore(ascii_case))]
-    LD, /* load */
-    #[token("ST", ignore(ascii_case))]
-    ST, /* store */
-    #[token("JSR", ignore(ascii_case))]
-    JSR, /* jump register */
-    #[token("JSRR", ignore(ascii_case))]
-    JSRR, /* JSR, but takes a register argument */
-    #[token("AND", ignore(ascii_case))]
-    AND, /* bitwise and */
-    #[token("LDR", ignore(ascii_case))]
-    LDR, /* load register */
-    #[token("STR", ignore(ascii_case))]
-    STR, /* store register */
-    #[token("RTI", ignore(ascii_case))]
-    RTI, /* unused */
-    #[token("NOT", ignore(ascii_case))]
-    NOT, /* bitwise not */
-    #[token("LDI", ignore(ascii_case))]
-    LDI, /* load indirect */
-    #[token("STI", ignore(ascii_case))]
-    STI, /* store indirect */
-    #[token("JMP", ignore(ascii_case))]
-    JMP, /* jump */
-    #[token("RET", ignore(ascii_case))]
-    RET, /* equivalent to JMP R7 */
-    #[token("LEA", ignore(ascii_case))]
-    LEA, /* load effective address */
-    #[token("TRAP", ignore(ascii_case))]
-    TRAP, /* execute trap */
+    BR(u16),
+    #[token("ADD", |_| ((Op::ADD as u16) << 12), ignore(ascii_case))]
+    ADD(u16),
+    #[token("LD", |_| ((Op::LD as u16) << 12), ignore(ascii_case))]
+    LD(u16),
+    #[token("ST", |_| ((Op::ST as u16) << 12), ignore(ascii_case))]
+    ST(u16),
+    #[token("JSR", |_| (((Op::JSR as u16) << 12) | (1 << 11)), ignore(ascii_case))]
+    JSR(u16),
+    #[token("JSRR", |_| ((Op::JSR as u16) << 12), ignore(ascii_case))]
+    JSRR(u16),
+    #[token("AND", |_| ((Op::AND as u16) << 12), ignore(ascii_case))]
+    AND(u16),
+    #[token("LDR", |_| ((Op::LDR as u16) << 12), ignore(ascii_case))]
+    LDR(u16),
+    #[token("STR", |_| ((Op::STR as u16) << 12), ignore(ascii_case))]
+    STR(u16),
+    #[token("RTI", |_| ((Op::RTI as u16) << 12), ignore(ascii_case))]
+    RTI(u16),
+    #[token("NOT", |_| ((Op::NOT as u16) << 12), ignore(ascii_case))]
+    NOT(u16),
+    #[token("LDI", |_| ((Op::LDI as u16) << 12), ignore(ascii_case))]
+    LDI(u16),
+    #[token("STI", |_| ((Op::STI as u16) << 12), ignore(ascii_case))]
+    STI(u16),
+    #[token("JMP", |_| ((Op::JMP as u16) << 12), ignore(ascii_case))]
+    JMP(u16),
+    #[token("RET", |_| (((Op::JMP as u16) << 12) | (7 << 6)), ignore(ascii_case))]
+    RET(u16),
+    #[token("LEA", |_| ((Op::LEA as u16) << 12), ignore(ascii_case))]
+    LEA(u16),
+    #[token("TRAP", |_| ((Op::TRAP as u16) << 12), ignore(ascii_case))]
+    TRAP(u16),
 
-    // traps
-    #[token("GETC", ignore(ascii_case))]
-    GETC, /* get character from keyboard, not echoed */
-    #[token("OUT", ignore(ascii_case))]
-    OUT, /* output a character */
-    #[token("PUTS", ignore(ascii_case))]
-    PUTS, /* output a word string */
-    #[token("IN", ignore(ascii_case))]
-    IN, /* get character from keyboard, echoed onto the terminal */
-    #[token("PUTSP", ignore(ascii_case))]
-    PUTSP, /* output a byte string */
-    #[token("HALT", ignore(ascii_case))]
-    HALT, /* halt the program */
+    /* traps */
+    #[token("GETC", |_| (((Op::TRAP as u16) << 12) | (Trap::GETC as u16)), ignore(ascii_case))]
+    GETC(u16),
+    #[token("OUT", |_| (((Op::TRAP as u16) << 12) | (Trap::OUT as u16)), ignore(ascii_case))]
+    OUT(u16),
+    #[token("PUTS", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTS as u16)), ignore(ascii_case))]
+    PUTS(u16),
+    #[token("IN", |_| (((Op::TRAP as u16) << 12) | (Trap::IN as u16)), ignore(ascii_case))]
+    IN(u16),
+    #[token("PUTSP", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTSP as u16)), ignore(ascii_case))]
+    PUTSP(u16),
+    #[token("HALT", |_| (((Op::TRAP as u16) << 12) | (Trap::HALT as u16)), ignore(ascii_case))]
+    HALT(u16),
 
-    // registers
-    /// ```
-    /// use lc3::Reg;
-    /// use lc3::asm::Token;
-    /// use logos::Logos;
-    ///
-    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::REG(Reg::R0))));
-    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::REG(Reg::R1))));
-    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::REG(Reg::R2))));
-    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::REG(Reg::R3))));
-    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::REG(Reg::R4))));
-    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::REG(Reg::R5))));
-    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::REG(Reg::R6))));
-    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::REG(Reg::R7))));
-    /// ```
-    #[regex("R[0-7]", callback = |lex| {
-        Reg::from(lex.slice().as_bytes()[1] - b'0')
-    },
-    ignore(ascii_case))]
-    REG(Reg),
-
-    // assembler directives
+    /* assembler directives */
     #[token(".ORIG", ignore(ascii_case))]
     ORIG, /* origin */
     #[token(".FILL", ignore(ascii_case))]
@@ -137,636 +99,470 @@ pub enum Token {
     #[token(".END", ignore(ascii_case))]
     END, /* end of program */
 
-    // literals
-    #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]+", callback = |lex| {
+    /* registers */
+    /// ```rust
+    /// use lc3::asm::Token;
+    /// use logos::Logos;
+    ///
+    /// assert_eq!(Token::lexer("R0").next(), Some(Ok(Token::Reg(0))));
+    /// assert_eq!(Token::lexer("R1").next(), Some(Ok(Token::Reg(1))));
+    /// assert_eq!(Token::lexer("R2").next(), Some(Ok(Token::Reg(2))));
+    /// assert_eq!(Token::lexer("R3").next(), Some(Ok(Token::Reg(3))));
+    /// assert_eq!(Token::lexer("R4").next(), Some(Ok(Token::Reg(4))));
+    /// assert_eq!(Token::lexer("R5").next(), Some(Ok(Token::Reg(5))));
+    /// assert_eq!(Token::lexer("R6").next(), Some(Ok(Token::Reg(6))));
+    /// assert_eq!(Token::lexer("R7").next(), Some(Ok(Token::Reg(7))));
+    /// ```
+    #[regex("R[0-7]", callback = |lex| {
+        (lex.slice().as_bytes()[1] - b'0') as u16
+    },
+    ignore(ascii_case))]
+    Reg(u16),
+
+    /* literals */
+    #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]{1,4}", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
-        let value = i16::from_str_radix(&lex.slice()[1..], radix)?;
-        Ok::<u16, ParseError>(value as u16)
+        let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
+        Ok::<u16, LexError>(value as u16)
     })]
-    NUMLIT(u16),
-    #[regex(r#""(?:[^"]|\\")*""#, |lex| lex.slice()[1..lex.slice().len()-1].as_bytes().to_vec())]
-    STRLIT(Vec<u8>),
+    NumLit(u16),
+    /// Returns the original unescaped string as a byte vector.
+    /// TODO write a test for this
+    #[regex(r#""(?:[^"]|\\")*""#, |lex| String::from(&lex.slice()[1..lex.slice().len()-1]))]
+    StrLit(String),
 
-    // labels
+    /* labels */
+    // NB we're going to disallow a label beginning with `_` so we can use it for assembler directive hints
     #[regex(r"[a-zA-Z][_\-a-zA-Z0-9]*", |lex| lex.slice().to_string())]
-    LABEL(String),
+    Label(String),
 
-    // punctuation
+    /* assembler hints */
+    #[token("_FILL", |_| Hint::Fill)]
+    HintFill(Hint),
+
+    #[token("_STRINGZ", |_| Hint::Stringz)]
+    HintStringz(Hint),
+
+    /* punctuation */
     #[token(",")]
     COMMA,
+
+    #[token("\n", |lex| lex.extras.0 += 1; Skip)]
+    NEWLINE,
 }
 
-pub struct Parser<'source> {
-    lexer: Lexer<'source, Token>,
+macro_rules! expect_token {
+    ($lexer:expr) => {
+        match $lexer.next() {
+            Some(Ok(result)) => Ok(result),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
+        }
+    };
+    ($lexer:expr, $expected:pat) => {
+        match $lexer.next() {
+            Some(Ok($expected)) => Ok(()),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(
+                unexpected,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
+        }
+    };
+    ($lexer:expr, $expected:pat => $result:expr) => {
+        match $lexer.next() {
+            Some(Ok($expected)) => Ok($result),
+            Some(Ok(unexpected)) => Err(ParseError::UnexpectedToken(
+                unexpected,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            Some(Err(e)) => Err(ParseError::LexError(
+                e,
+                $lexer.extras.0 + 1,
+                $lexer.slice().to_string(),
+            )),
+            None => Err(ParseError::UnexpectedEOF($lexer.extras.0 + 1)),
+        }
+    };
 }
 
-impl<'source> Parser<'source> {
-    pub fn new(source: &'source str) -> Self {
-        Parser {
-            lexer: Token::lexer(source),
-        }
-    }
+/// Parse LC3 source assembly into a binary program and resolve all symbol references.
+pub fn assemble_program(source: &str) -> Result<Program, ParseError> {
+    let mut prog = parse_program(source)?;
+    prog.resolve_symbols()?;
+    Ok(prog)
+}
 
-    pub fn parse(&mut self) -> Result<Program, ParseError> {
-        let mut prog = Program::default();
+/// Parse LC3 source assembly into a binary program, _without_ resolving symbols references into addresses.
+pub fn parse_program(source: &str) -> Result<Program, ParseError> {
+    let mut prog = Program::default();
+    let mut lexer = Token::lexer(source);
 
-        self.expect_orig()?;
-        prog.orig = self.expect_numlit()?;
+    expect_token!(lexer, Token::ORIG)?;
+    prog.origin = expect_token!(lexer, Token::NumLit(addr) => addr)?;
 
-        let mut iaddr = 0u16;
-        loop {
-            let token = self.expect_next_token()?;
-            match token {
-                // TODO what if there is add'l garbage after .END?
-                Token::END => {
-                    break;
-                }
-                Token::LABEL(label) => {
-                    prog.syms.insert(label, iaddr);
-                }
-                _ => {
-                    self.parse_instruction(token)?;
-                }
+    loop {
+        let token = expect_token!(lexer)?;
+        match token {
+            Token::END => {
+                break;
             }
-            iaddr += 1;
-        }
-
-        Ok(prog)
-    }
-
-    fn parse_instruction(&mut self, la: Token) -> Result<Instruction, ParseError> {
-        match la {
-            // ops
-            Token::ADD => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let sr1 = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::REG(sr2) => Ok(Instruction::Add(dr, sr1, Some(sr2), None)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::Add(dr, sr1, None, Some(imm5))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "REG or imm5".to_string(),
-                        found: token,
-                    }),
+            Token::Label(label) => {
+                // TODO remove clone?
+                if let Some(_) = prog
+                    .symtab
+                    .insert_symbol(label.clone(), prog.instructions.len())
+                {
+                    return Err(ParseError::SymbolError(SymbolError::DuplicateSymbol(label)));
                 }
             }
-            Token::AND => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let sr1 = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::REG(sr2) => Ok(Instruction::And(dr, sr1, Some(sr2), None)),
-                    Token::NUMLIT(imm5) => Ok(Instruction::And(dr, sr1, None, Some(imm5))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "REG or imm5".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::BR(flags) => {
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Br(flags, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Br(flags, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::JMP => Ok(Instruction::Jmp(self.expect_reg()?)),
-            Token::JSR => {
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset11) => Ok(Instruction::Jsr(Some(pcoffset11), None)),
-                    Token::LABEL(label) => Ok(Instruction::Jsr(None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset11".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::JSRR => Ok(Instruction::Jsrr(self.expect_reg()?)),
-            Token::LD => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ld(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Ld(dr, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::LDI => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Ldi(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Ldi(dr, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::LDR => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let base_r = self.expect_reg()?;
-                self.expect_comma()?;
-                let offset6 = self.expect_numlit()?;
-                Ok(Instruction::Ldr(dr, base_r, offset6))
-            }
-            Token::LEA => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Lea(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Lea(dr, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::NOT => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let sr = self.expect_reg()?;
-                Ok(Instruction::Not(dr, sr))
-            }
-            Token::RET => Ok(Instruction::Jmp(Reg::R7)),
-            Token::RTI => Ok(Instruction::Rti),
-            Token::ST => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::St(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::St(dr, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::STI => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let token = self.expect_next_token()?;
-                match token {
-                    Token::NUMLIT(pcoffset9) => Ok(Instruction::Sti(dr, Some(pcoffset9), None)),
-                    Token::LABEL(label) => Ok(Instruction::Sti(dr, None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or pcoffset9".to_string(),
-                        found: token,
-                    }),
-                }
-            }
-            Token::STR => {
-                let dr = self.expect_reg()?;
-                self.expect_comma()?;
-                let base_r = self.expect_reg()?;
-                self.expect_comma()?;
-                let offset6 = self.expect_numlit()?;
-                Ok(Instruction::Str(dr, base_r, offset6))
-            }
-            Token::TRAP => Ok(Instruction::Trap(self.expect_numlit()?)),
-
-            // traps
-            Token::GETC => Ok(Instruction::Trap(Trap::GETC as u16)),
-            Token::OUT => Ok(Instruction::Trap(Trap::OUT as u16)),
-            Token::PUTS => Ok(Instruction::Trap(Trap::PUTS as u16)),
-            Token::IN => Ok(Instruction::Trap(Trap::IN as u16)),
-            Token::PUTSP => Ok(Instruction::Trap(Trap::PUTSP as u16)),
-            Token::HALT => Ok(Instruction::Trap(Trap::HALT as u16)),
-
-            // assembler directives
+            /* assembler directives */
             Token::FILL => {
-                let token = self.expect_next_token()?;
+                prog.symtab.insert_hint(prog.instructions.len(), Hint::Fill);
+                let token = expect_token!(lexer)?;
                 match token {
-                    Token::NUMLIT(value) => Ok(Instruction::Fill(Some(value), None)),
-                    Token::LABEL(label) => Ok(Instruction::Fill(None, Some(label))),
-                    _ => Err(ParseError::UnexpectedToken {
-                        expected: "LABEL or NUMLIT".to_string(),
-                        found: token,
-                    }),
+                    Token::NumLit(word) => prog.instructions.push(word),
+                    Token::Label(label) => {
+                        prog.symtab.insert_ref(prog.instructions.len(), label);
+                        prog.instructions.push(0u16);
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0 + 1,
+                            lexer.slice().to_string(),
+                        ))
+                    }
                 }
             }
-
-            Token::STRINGZ => Ok(Instruction::Stringz(self.expect_strlit()?)),
-
-            _ => Err(ParseError::UnexpectedToken {
-                expected: "operation or assembler directive".to_string(),
-                found: la,
-            }),
+            Token::STRINGZ => {
+                prog.symtab
+                    .insert_hint(prog.instructions.len(), Hint::Stringz);
+                let escaped = expect_token!(lexer, Token::StrLit(s) => s)?;
+                for b in unescape(&escaped).as_bytes() {
+                    prog.instructions.push(*b as u16);
+                }
+                prog.instructions.push(0u16);
+            }
+            _ => {
+                let (inst, sym) = parse_instruction_la(&mut lexer, token)?;
+                if let Some(label) = sym {
+                    prog.symtab.insert_ref(prog.instructions.len(), label);
+                }
+                prog.instructions.push(inst);
+            }
         }
     }
 
-    fn expect_next_token(&mut self) -> Result<Token, ParseError> {
-        if let Some(result) = self.lexer.next() {
-            result
-        } else {
-            Err(ParseError::UnexpectedEOF)
+    Ok(prog)
+}
+
+/// Loads a symbol table from input.
+pub fn parse_symbol_table(source: &str) -> Result<SymbolTable, ParseError> {
+    let mut symbols: HashMap<String, usize> = HashMap::new();
+    let mut hints: HashMap<usize, Hint> = HashMap::new();
+
+    let mut lexer = Token::lexer(source);
+
+    while let Some(res) = lexer.next() {
+        match res {
+            Ok(Token::NumLit(addr)) => {
+                let token = expect_token!(lexer)?;
+                match token {
+                    Token::Label(label) => {
+                        // TODO check for dupes
+                        symbols.insert(label, addr.into());
+                    }
+                    Token::HintFill(hint) | Token::HintStringz(hint) => {
+                        hints.insert(addr.into(), hint);
+                    }
+                    _ => {
+                        return Err(ParseError::UnexpectedToken(
+                            token,
+                            lexer.extras.0,
+                            lexer.slice().into(),
+                        ));
+                    }
+                }
+            }
+            Ok(token) => {
+                return Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ));
+            }
+            Err(e) => {
+                return Err(ParseError::LexError(
+                    e,
+                    lexer.extras.0,
+                    lexer.slice().into(),
+                ))
+            }
         }
     }
 
-    fn expect_comma(&mut self) -> Result<(), ParseError> {
-        let token = self.expect_next_token()?;
+    Ok(SymbolTable::new(symbols, hints, HashMap::new()))
+}
 
-        if let Token::COMMA = token {
-            Ok(())
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "COMMA".to_string(),
-                found: token,
-            })
+/// Parse a single LC3 instruction (outside of the context of a full program).
+///
+/// Most users won't actually ever need to use this, but it's handy for testing/debugging.
+///
+/// ```rust
+/// use lc3::{Op, Trap};
+/// use lc3::asm::parse_instruction;
+///
+/// /* operations */
+/// assert_eq!(parse_instruction("ADD R0, R1, R2"), Ok(((Op::ADD as u16) << 12 | 0 << 9 | 1 << 6 | 2, None)));
+/// assert_eq!(parse_instruction("AND R3, R4, R5"), Ok(((Op::AND as u16) << 12 | 3 << 9 | 4 << 6 | 5, None)));
+/// assert_eq!(parse_instruction("ADD R6, R7, #-7"), Ok(((Op::ADD as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("AND R6, R7, #-7"), Ok(((Op::AND as u16) << 12 | 6 << 9 | 7 << 6 | 1 << 5 | ((-7i16 & 0x1f) as u16), None)));
+/// assert_eq!(parse_instruction("BR x123"), Ok(((Op::BR as u16) << 12 | 7 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("BR LABEL"), Ok(((Op::BR as u16) << 12 | 7 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("JMP R1"), Ok(((Op::JMP as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("JSR x123"), Ok(((Op::JSR as u16) << 12 | 1 << 11 | (0x123 & 0x7ff),None)));
+/// assert_eq!(parse_instruction("JSRR R1"), Ok(((Op::JSR as u16) << 12 | 1 << 6, None)));
+/// assert_eq!(parse_instruction("LD R1, x123"), Ok(((Op::LD as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LD R1, LABEL"), Ok(((Op::LD as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LDI R1, x123"), Ok(((Op::LDI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LDI R1, LABEL"), Ok(((Op::LDI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LEA R1, x123"), Ok(((Op::LEA as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("LEA R1, LABEL"), Ok(((Op::LEA as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("RET"), Ok(((Op::JMP as u16) << 12 | 7 << 6, None)));
+/// assert_eq!(parse_instruction("ST R1, x123"), Ok(((Op::ST as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("ST R1, LABEL"), Ok(((Op::ST as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("STI R1, x123"), Ok(((Op::STI as u16) << 12 | 1 << 9 | (0x123 & 0x1ff), None)));
+/// assert_eq!(parse_instruction("STI R1, LABEL"), Ok(((Op::STI as u16) << 12 | 1 << 9, Some(String::from("LABEL")))));
+/// assert_eq!(parse_instruction("LDR R6, R7, #-7"), Ok(((Op::LDR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+/// assert_eq!(parse_instruction("STR R6, R7, #-7"), Ok(((Op::STR as u16) << 12 | 6 << 9 | 7 << 6 | ((-7i16 & 0x3f) as u16), None)));
+///
+/// /* traps */
+/// assert_eq!(parse_instruction("TRAP x23"), Ok(((Op::TRAP as u16) << 12 | (0x23 & 0xff), None)));
+/// assert_eq!(parse_instruction("GETC"), Ok(((Op::TRAP as u16) << 12 | (Trap::GETC as u16), None)));
+/// assert_eq!(parse_instruction("OUT"), Ok(((Op::TRAP as u16) << 12 | (Trap::OUT as u16), None)));
+/// assert_eq!(parse_instruction("PUTS"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTS as u16), None)));
+/// assert_eq!(parse_instruction("IN"), Ok(((Op::TRAP as u16) << 12 | (Trap::IN as u16), None)));
+/// assert_eq!(parse_instruction("PUTSP"), Ok(((Op::TRAP as u16) << 12 | (Trap::PUTSP as u16), None)));
+/// assert_eq!(parse_instruction("HALT"), Ok(((Op::TRAP as u16) << 12 | (Trap::HALT as u16), None)));
+/// ```
+pub fn parse_instruction(source: &str) -> Result<(u16, Option<String>), ParseError> {
+    let mut lexer = Token::lexer(source);
+    let token = expect_token!(lexer)?;
+    parse_instruction_la(&mut lexer, token)
+}
+
+fn parse_instruction_la(
+    lexer: &mut Lexer<Token>,
+    la: Token,
+) -> Result<(u16, Option<String>), ParseError> {
+    match la {
+        /* operations */
+        Token::ADD(op) | Token::AND(op) => {
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::Reg(r3) => Ok((op | r1 << 9 | r2 << 6 | r3, None)),
+                Token::NumLit(imm5) => Ok((op | r1 << 9 | r2 << 6 | 1 << 5 | (imm5 & 0x1f), None)),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
         }
-    }
-
-    fn expect_numlit(&mut self) -> Result<u16, ParseError> {
-        let token = self.expect_next_token()?;
-
-        if let Token::NUMLIT(value) = token {
-            Ok(value)
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "NUMLIT".to_string(),
-                found: token,
-            })
+        Token::BR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NumLit(pcoffset9) => Ok((op | (pcoffset9 & 0x1ff), None)),
+                Token::Label(label) => Ok((op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
         }
-    }
-
-    fn expect_orig(&mut self) -> Result<(), ParseError> {
-        let token = self.expect_next_token()?;
-
-        if let Token::ORIG = token {
-            Ok(())
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "ORIG".to_string(),
-                found: token,
-            })
+        Token::JMP(op) | Token::JSRR(op) => {
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
+            Ok((op | r1 << 6, None))
         }
-    }
-
-    fn expect_reg(&mut self) -> Result<Reg, ParseError> {
-        let token = self.expect_next_token()?;
-
-        if let Token::REG(value) = token {
-            Ok(value)
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "REG".to_string(),
-                found: token,
-            })
+        Token::RET(op) => Ok((op, None)),
+        Token::JSR(op) => {
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NumLit(pcoffset11) => Ok((op | (pcoffset11 & 0x7ff), None)),
+                Token::Label(label) => Ok((op, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
         }
-    }
-
-    fn expect_strlit(&mut self) -> Result<Vec<u8>, ParseError> {
-        let token = self.expect_next_token()?;
-
-        if let Token::STRLIT(value) = token {
-            Ok(value)
-        } else {
-            Err(ParseError::UnexpectedToken {
-                expected: "STRLIT".to_string(),
-                found: token,
-            })
+        Token::LD(op) | Token::LDI(op) | Token::LEA(op) | Token::ST(op) | Token::STI(op) => {
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let token = expect_token!(lexer)?;
+            match token {
+                Token::NumLit(pcoffset9) => Ok((op | r1 << 9 | (pcoffset9 & 0x1ff), None)),
+                Token::Label(label) => Ok((op | r1 << 9, Some(label))),
+                _ => Err(ParseError::UnexpectedToken(
+                    token,
+                    lexer.extras.0 + 1,
+                    lexer.slice().to_string(),
+                )),
+            }
         }
+        Token::LDR(op) | Token::STR(op) => {
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let offset6 = expect_token!(lexer, Token::NumLit(offset6) => offset6)?;
+            Ok((op | r1 << 9 | r2 << 6 | (offset6 & 0x3f), None))
+        }
+        Token::NOT(op) => {
+            let r1 = expect_token!(lexer, Token::Reg(r) => r)?;
+            expect_token!(lexer, Token::COMMA)?;
+            let r2 = expect_token!(lexer, Token::Reg(r) => r)?;
+            Ok((op | r1 << 9 | r2 << 6 | 0b111111, None))
+        }
+        Token::RTI(op) => Ok((op, None)),
+
+        /* traps */
+        Token::TRAP(op) => {
+            let trapvect8 = expect_token!(lexer, Token::NumLit(trapvect8) => trapvect8)?;
+            Ok((op | (trapvect8 & 0xff), None))
+        }
+        Token::GETC(op)
+        | Token::OUT(op)
+        | Token::PUTS(op)
+        | Token::IN(op)
+        | Token::PUTSP(op)
+        | Token::HALT(op) => Ok((op, None)),
+        _ => Err(ParseError::UnexpectedToken(
+            la,
+            lexer.extras.0 + 1,
+            lexer.slice().to_string(),
+        )),
     }
 }
+
+/* errors */
 
 #[derive(Error, Clone, Debug, Default, PartialEq)]
-pub enum ParseError {
-    #[error("unexpected token (expected {expected}, found {found:?}")]
-    UnexpectedToken { expected: String, found: Token },
-    #[error("unexpected EOF")]
-    UnexpectedEOF,
-    #[error("error parsing u16 from {0}")]
+pub enum LexError {
+    #[error("error parsing u16: {0}")]
     ParseIntError(#[from] ParseIntError),
+
+    #[error("error unescaping string literal: {0}")]
+    UnescapeError(String),
+
     #[default]
-    #[error("unknown parse error")]
-    Unknown,
+    #[error("unknown token")]
+    UnknownToken,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Error, Clone, Debug, PartialEq)]
+pub enum ParseError {
+    #[error("lex error on line {1}: {0} ({2})")]
+    LexError(LexError, u32, String),
+    #[error("unexpected token on line {1}: {0:?} ({2})")]
+    UnexpectedToken(Token, u32, String),
+    #[error("unexpected EOF on line {0}")]
+    UnexpectedEOF(u32),
+    #[error("symbol error: {0}")]
+    SymbolError(#[from] SymbolError),
+}
 
-    #[test]
-    fn test_parse_add() {
-        let mut parser = Parser::new("ADD R0, R1, R2");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Add(Reg::R0, Reg::R1, Some(Reg::R2), None)
-        );
-        let mut parser = Parser::new("ADD R3, R4, #-7");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Add(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
-        );
+/* utilities */
+
+/// Unescapes the input string.
+/// // TODO write a test
+fn unescape(input: &str) -> String {
+    // NB There are a handful of crates that do this, none of which actually escapes everything
+    // we need escaped (notably, ANSI escapes like `\e[`). `snailquote` handles these, but also
+    // has its own agenda about escaping things inside single quotes and suchlike.
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '\'' => result.push('\''),
+                    '"' => result.push('"'),
+                    '0' => result.push('\0'),
+                    'x' => {
+                        // Handle hexadecimal escape sequence (e.g., \x41)
+                        let mut hex = String::new();
+                        if let Some(h1) = chars.next() {
+                            hex.push(h1);
+                        }
+                        if let Some(h2) = chars.next() {
+                            hex.push(h2);
+                        }
+                        if let Ok(value) = u8::from_str_radix(&hex, 16) {
+                            result.push(value as char);
+                        }
+                    }
+                    'u' => {
+                        // Handle Unicode escape sequence (e.g., \u{1F600})
+                        if chars.next() == Some('{') {
+                            let mut hex = String::new();
+                            while let Some(h) = chars.next() {
+                                if h == '}' {
+                                    break;
+                                }
+                                hex.push(h);
+                            }
+                            if let Ok(value) = u32::from_str_radix(&hex, 16) {
+                                if let Some(ch) = std::char::from_u32(value) {
+                                    result.push(ch);
+                                }
+                            }
+                        }
+                    }
+                    'e' => {
+                        // Handle ANSI escape sequence (e.g., \e[31m)
+                        result.push('\x1B');
+                        if let Some('[') = chars.peek() {
+                            result.push(chars.next().unwrap());
+                            while let Some(&next) = chars.peek() {
+                                result.push(next);
+                                chars.next();
+                                if next.is_alphabetic() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => result.push(next),
+                }
+            }
+        } else {
+            result.push(c);
+        }
     }
 
-    #[test]
-    fn test_parse_and() {
-        let mut parser = Parser::new("AND R0, R1, R2");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::And(Reg::R0, Reg::R1, Some(Reg::R2), None)
-        );
-        let mut parser = Parser::new("AND R3, R4, #-7");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::And(Reg::R3, Reg::R4, None, Some(-7i16 as u16))
-        );
-    }
-
-    #[test]
-    fn test_parse_br() {
-        let mut parser = Parser::new("BR x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Br(0b111, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("BR LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Br(0b111, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_jmp() {
-        let mut parser = Parser::new("JMP R6");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Jmp(Reg::R6)
-        );
-    }
-
-    #[test]
-    fn test_parse_jsr() {
-        let mut parser = Parser::new("JSR x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Jsr(Some(0x1234), None)
-        );
-        let mut parser = Parser::new("JSR LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Jsr(None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_jsrr() {
-        let mut parser = Parser::new("JSRR R6");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Jsrr(Reg::R6)
-        );
-    }
-
-    #[test]
-    fn test_parse_ld() {
-        let mut parser = Parser::new("LD R1, x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Ld(Reg::R1, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("LD R1, LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Ld(Reg::R1, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_ldi() {
-        let mut parser = Parser::new("LDI R1, x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Ldi(Reg::R1, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("LDI R1, LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Ldi(Reg::R1, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_ldr() {
-        let mut parser = Parser::new("LDR R0, R1, #20");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Ldr(Reg::R0, Reg::R1, 20)
-        );
-    }
-
-    #[test]
-    fn test_parse_lea() {
-        let mut parser = Parser::new("LEA R1, x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Lea(Reg::R1, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("LEA R1, LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Lea(Reg::R1, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_not() {
-        let mut parser = Parser::new("NOT R0, R1");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Not(Reg::R0, Reg::R1)
-        );
-    }
-
-    #[test]
-    fn test_parse_ret() {
-        let mut parser = Parser::new("RET");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Jmp(Reg::R7)
-        );
-    }
-
-    #[test]
-    fn test_parse_rti() {
-        let mut parser = Parser::new("RTI");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(parser.parse_instruction(la).unwrap(), Instruction::Rti);
-    }
-
-    #[test]
-    fn test_parse_st() {
-        let mut parser = Parser::new("ST R1, x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::St(Reg::R1, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("ST R1, LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::St(Reg::R1, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_sti() {
-        let mut parser = Parser::new("STI R1, x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Sti(Reg::R1, Some(0x1234), None)
-        );
-        let mut parser = Parser::new("STI R1, LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Sti(Reg::R1, None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_str() {
-        let mut parser = Parser::new("STR R0, R1, #20");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Str(Reg::R0, Reg::R1, 20)
-        );
-    }
-
-    #[test]
-    fn test_parse_trap() {
-        let mut parser = Parser::new("TRAP x20");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(0x20)
-        );
-    }
-
-    #[test]
-    fn test_parse_getc() {
-        let mut parser = Parser::new("GETC");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::GETC as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_out() {
-        let mut parser = Parser::new("OUT");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::OUT as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_puts() {
-        let mut parser = Parser::new("PUTS");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::PUTS as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_in() {
-        let mut parser = Parser::new("IN");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::IN as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_putsp() {
-        let mut parser = Parser::new("PUTSP");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::PUTSP as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_halt() {
-        let mut parser = Parser::new("HALT");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Trap(Trap::HALT as u16)
-        );
-    }
-
-    #[test]
-    fn test_parse_fill() {
-        let mut parser = Parser::new(".FILL x1234");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Fill(Some(0x1234), None)
-        );
-        let mut parser = Parser::new(".FILL LABEL");
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Fill(None, Some("LABEL".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_stringz() {
-        let mut parser = Parser::new(r#".STRINGZ "hello, world!\n""#);
-        let la = parser.expect_next_token().unwrap();
-        assert_eq!(
-            parser.parse_instruction(la).unwrap(),
-            Instruction::Stringz(r"hello, world!\n".as_bytes().to_vec())
-        );
-    }
+    result
 }
