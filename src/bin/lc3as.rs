@@ -82,6 +82,26 @@ impl Args {
             Box::new(fs::File::create(&path)?) as Box<dyn io::Write>
         })
     }
+
+    fn get_symbol_write(&self) -> Result<impl io::Write, io::Error> {
+        if let Some(opt) = &self.symbols {
+            if let Some(path) = opt {
+                if *path == PathBuf::from("-") {
+                    Ok(Box::new(io::stdout().lock()) as Box<dyn io::Write>)
+                } else {
+                    Ok(Box::new(fs::File::create(&path)?) as Box<dyn io::Write>)
+                }
+            } else {
+                // construct a filename from the input file
+                let mut path = self.input.clone();
+                path.set_extension("sym");
+                Ok(Box::new(fs::File::create(&path)?) as Box<dyn io::Write>)
+            }
+        } else {
+            // we don't want to dump the symbol table
+            Ok(Box::new(io::empty()) as Box<dyn io::Write>)
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
@@ -93,7 +113,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         let source = args.get_assembly_source()?;
         let prog = assemble_program(&source)?;
         let mut output = args.get_output_write("obj")?;
+        let mut symbols = args.get_symbol_write()?;
         prog.write(&mut output)?;
+        prog.dump_symbols(&mut symbols)?;
     }
 
     Ok(())

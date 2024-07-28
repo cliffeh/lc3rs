@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::{fmt, io};
 pub mod asm;
 
@@ -106,6 +107,10 @@ impl<'p> Program {
         Ok(())
     }
 
+    pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, io::Error> {
+        w.write(format!("{}", self.symtab).as_bytes())
+    }
+
     /// Reads a program in from `r`
     pub fn read(r: &mut dyn io::Read) -> Result<Program, io::Error> {
         let mut buf: Vec<u8> = vec![];
@@ -131,7 +136,7 @@ impl<'p> Program {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.origin as u16))?;
         for instruction in &self.instructions {
-            n += w.write(&u16::to_be_bytes(*instruction))?; // TODO!
+            n += w.write(&u16::to_be_bytes(*instruction))?;
         }
         Ok(n)
     }
