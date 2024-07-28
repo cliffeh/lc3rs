@@ -1,6 +1,7 @@
 use clap::Parser;
 use lc3::asm::assemble_program;
 use lc3::Program;
+use std::io::Write;
 use std::path::PathBuf;
 use std::{error, io};
 use std::{fs, path};
@@ -148,7 +149,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         let mut prog = Program::read(&mut r)?;
         let symbols = args.get_symbol_source()?;
         prog.load_symbols(&symbols)?;
-        print!("{}", prog);
+        let mut output = args.get_output_write("asm")?;
+        output.write(format!("{}", prog).as_bytes())?;
     } else {
         let source = args.get_assembly_source()?;
         let prog = assemble_program(&source)?;
