@@ -149,6 +149,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         let mut prog = Program::read(&mut r)?;
         let symbols = args.get_symbol_source()?;
         prog.load_symbols(&symbols)?;
+        prog.infer_references();
         let mut output = args.get_output_write("asm")?;
         output.write(format!("{}", prog).as_bytes())?;
     } else {

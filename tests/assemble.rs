@@ -52,6 +52,7 @@ fn test_disassemble_with_symbols(#[files("examples/*.obj")] infile: PathBuf) {
     let mut buf = String::new();
     let _ = symin.read_to_string(&mut buf);
     let _ = prog.load_symbols(&buf);
+    prog.infer_references();
 
     let mut expected: Vec<u8> = vec![];
     let _ = prog.write(&mut expected);
