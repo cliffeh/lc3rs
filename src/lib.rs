@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::{fmt, io};
 pub mod asm;
+pub mod vm;
 
 use asm::{parse_symbol_table, ParseError};
 use thiserror::Error;
