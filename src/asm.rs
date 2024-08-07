@@ -9,7 +9,7 @@ use thiserror::Error;
 #[logos(skip r"([ \t\r]+|;.*)")] // ignore whitespace and comments
 pub enum Token {
     /* operations */
-    /// ```
+    /// ```rust
     /// use lc3::Op;
     /// use lc3::asm::Token;
     /// use logos::Logos;

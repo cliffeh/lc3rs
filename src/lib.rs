@@ -42,12 +42,14 @@ pub enum Trap {
     HALT = 0x25,  /* halt the program */
 }
 
+/// Assembler directive hints
 #[derive(Clone, Debug, PartialEq)]
 pub enum Hint {
     Fill,
     Stringz,
 }
 
+/// Representation of an LC3 program.
 #[derive(Debug, PartialEq)]
 pub struct Program {
     /// Origin address of the program
@@ -68,6 +70,7 @@ impl<'p> Program {
         }
     }
 
+    /// Loads the symbol table for a program from an input source.
     pub fn load_symbols(&mut self, source: &str) -> Result<&SymbolTable, ParseError> {
         self.symtab = parse_symbol_table(source)?;
         Ok(&self.symtab)
@@ -114,6 +117,7 @@ impl<'p> Program {
         Ok(())
     }
 
+    /// Does a reverse lookup of referenced memory addresses, mapping them onto their respective labels (if they exist).
     pub fn infer_references(&mut self) {
         for iaddr in 0..self.instructions.len() {
             if let Some(Hint::Fill) = self.symtab.get_hint(&iaddr) {
@@ -150,11 +154,12 @@ impl<'p> Program {
         }
     }
 
+    /// Dumps the symbol table out to `w`, including label addresses and assembler directive hints.
     pub fn dump_symbols(&self, w: &mut dyn Write) -> Result<usize, io::Error> {
         w.write(format!("{}", self.symtab).as_bytes())
     }
 
-    /// Reads a program in from `r`
+    /// Reads program object code in from `r`.
     pub fn read(r: &mut dyn io::Read) -> Result<Program, io::Error> {
         let mut buf: Vec<u8> = vec![];
         if r.read_to_end(&mut buf)? % 2 != 0 {
@@ -174,7 +179,7 @@ impl<'p> Program {
         Ok(Program::new(origin, instructions, SymbolTable::default()))
     }
 
-    /// Writes the program out to `w`.
+    /// Writes program object code out to `w`.
     pub fn write(&self, w: &mut dyn io::Write) -> Result<usize, io::Error> {
         let mut n: usize = 0;
         n += w.write(&u16::to_be_bytes(self.origin as u16))?;
@@ -185,6 +190,8 @@ impl<'p> Program {
     }
 }
 
+/// Representation of a Program's symbol table, including addresses of labels, 
+/// addresses that reference those labels, and assembler hints.
 #[derive(Debug, PartialEq)]
 pub struct SymbolTable {
     /// Map of symbols to their respective addresses within a program
@@ -219,6 +226,7 @@ impl SymbolTable {
             refs,
         }
     }
+
     pub fn insert_symbol(&mut self, label: String, addr: usize) -> Option<usize> {
         self.symbols.insert(label, addr)
     }
@@ -294,7 +302,8 @@ impl TryFrom<u16> for Trap {
 
 /* utilities */
 
-pub fn sign_extend(x: u16, count: usize) -> u16 {
+/// Sign-extends the lower `16 - count` bits out to 16 bits.
+fn sign_extend(x: u16, count: usize) -> u16 {
     if ((x >> (count - 1)) & 1) != 0 {
         x | (0xFFFF << count)
     } else {
@@ -302,8 +311,12 @@ pub fn sign_extend(x: u16, count: usize) -> u16 {
     }
 }
 
+#[test]
+fn test_sign_extend() {
+    assert_eq!(sign_extend(0b11111, 5), 0xffff);
+}
+
 /// Escapes the input character.
-/// // TODO write a test
 fn escape(c: char) -> String {
     let mut result = String::new();
 
@@ -324,6 +337,11 @@ fn escape(c: char) -> String {
     }
 
     result
+}
+
+#[test]
+fn test_escape() {
+    assert_eq!(escape('\n'), "\\n");
 }
 
 /* formatting */
