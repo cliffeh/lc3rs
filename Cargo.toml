@@ -19,7 +19,7 @@ name = "lc3as"
 [dependencies]
 clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
 ctrlc = "3.4.4"
-logos = "0.14.0"
+logos = "0.15.1"
 rstest = "0.26.1"
 termios = "0.3.3"
 thiserror = "2.0.17"
