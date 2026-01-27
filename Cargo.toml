@@ -17,12 +17,12 @@ name = "lc3as"
 # name = "lc3vm"
 
 [dependencies]
-clap = { version = "4.5.8", features = ["derive", "wrap_help"] }
-ctrlc = "3.4.4"
-logos = "0.15.1"
+clap = { version = "4.5.54", features = ["derive", "wrap_help"] }
+ctrlc = "3.5.1"
+logos = "0.16.0"
 rstest = "0.26.1"
 termios = "0.3.3"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 
 [build-dependencies]
 lalrpop = "0.22.2"

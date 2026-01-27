@@ -40,63 +40,63 @@ pub enum Token {
             flags = 0b111;
         }
         ((Op::BR as u16) << 12) | (flags << 9)
-    }, ignore(ascii_case))]
+    }, ignore(case))]
     BR(u16),
-    #[token("ADD", |_| ((Op::ADD as u16) << 12), ignore(ascii_case))]
+    #[token("ADD", |_| ((Op::ADD as u16) << 12), ignore(case))]
     ADD(u16),
-    #[token("LD", |_| ((Op::LD as u16) << 12), ignore(ascii_case))]
+    #[token("LD", |_| ((Op::LD as u16) << 12), ignore(case))]
     LD(u16),
-    #[token("ST", |_| ((Op::ST as u16) << 12), ignore(ascii_case))]
+    #[token("ST", |_| ((Op::ST as u16) << 12), ignore(case))]
     ST(u16),
-    #[token("JSR", |_| (((Op::JSR as u16) << 12) | (1 << 11)), ignore(ascii_case))]
+    #[token("JSR", |_| (((Op::JSR as u16) << 12) | (1 << 11)), ignore(case))]
     JSR(u16),
-    #[token("JSRR", |_| ((Op::JSR as u16) << 12), ignore(ascii_case))]
+    #[token("JSRR", |_| ((Op::JSR as u16) << 12), ignore(case))]
     JSRR(u16),
-    #[token("AND", |_| ((Op::AND as u16) << 12), ignore(ascii_case))]
+    #[token("AND", |_| ((Op::AND as u16) << 12), ignore(case))]
     AND(u16),
-    #[token("LDR", |_| ((Op::LDR as u16) << 12), ignore(ascii_case))]
+    #[token("LDR", |_| ((Op::LDR as u16) << 12), ignore(case))]
     LDR(u16),
-    #[token("STR", |_| ((Op::STR as u16) << 12), ignore(ascii_case))]
+    #[token("STR", |_| ((Op::STR as u16) << 12), ignore(case))]
     STR(u16),
-    #[token("RTI", |_| ((Op::RTI as u16) << 12), ignore(ascii_case))]
+    #[token("RTI", |_| ((Op::RTI as u16) << 12), ignore(case))]
     RTI(u16),
-    #[token("NOT", |_| ((Op::NOT as u16) << 12), ignore(ascii_case))]
+    #[token("NOT", |_| ((Op::NOT as u16) << 12), ignore(case))]
     NOT(u16),
-    #[token("LDI", |_| ((Op::LDI as u16) << 12), ignore(ascii_case))]
+    #[token("LDI", |_| ((Op::LDI as u16) << 12), ignore(case))]
     LDI(u16),
-    #[token("STI", |_| ((Op::STI as u16) << 12), ignore(ascii_case))]
+    #[token("STI", |_| ((Op::STI as u16) << 12), ignore(case))]
     STI(u16),
-    #[token("JMP", |_| ((Op::JMP as u16) << 12), ignore(ascii_case))]
+    #[token("JMP", |_| ((Op::JMP as u16) << 12), ignore(case))]
     JMP(u16),
-    #[token("RET", |_| (((Op::JMP as u16) << 12) | (7 << 6)), ignore(ascii_case))]
+    #[token("RET", |_| (((Op::JMP as u16) << 12) | (7 << 6)), ignore(case))]
     RET(u16),
-    #[token("LEA", |_| ((Op::LEA as u16) << 12), ignore(ascii_case))]
+    #[token("LEA", |_| ((Op::LEA as u16) << 12), ignore(case))]
     LEA(u16),
-    #[token("TRAP", |_| ((Op::TRAP as u16) << 12), ignore(ascii_case))]
+    #[token("TRAP", |_| ((Op::TRAP as u16) << 12), ignore(case))]
     TRAP(u16),
 
     /* traps */
-    #[token("GETC", |_| (((Op::TRAP as u16) << 12) | (Trap::GETC as u16)), ignore(ascii_case))]
+    #[token("GETC", |_| (((Op::TRAP as u16) << 12) | (Trap::GETC as u16)), ignore(case))]
     GETC(u16),
-    #[token("OUT", |_| (((Op::TRAP as u16) << 12) | (Trap::OUT as u16)), ignore(ascii_case))]
+    #[token("OUT", |_| (((Op::TRAP as u16) << 12) | (Trap::OUT as u16)), ignore(case))]
     OUT(u16),
-    #[token("PUTS", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTS as u16)), ignore(ascii_case))]
+    #[token("PUTS", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTS as u16)), ignore(case))]
     PUTS(u16),
-    #[token("IN", |_| (((Op::TRAP as u16) << 12) | (Trap::IN as u16)), ignore(ascii_case))]
+    #[token("IN", |_| (((Op::TRAP as u16) << 12) | (Trap::IN as u16)), ignore(case))]
     IN(u16),
-    #[token("PUTSP", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTSP as u16)), ignore(ascii_case))]
+    #[token("PUTSP", |_| (((Op::TRAP as u16) << 12) | (Trap::PUTSP as u16)), ignore(case))]
     PUTSP(u16),
-    #[token("HALT", |_| (((Op::TRAP as u16) << 12) | (Trap::HALT as u16)), ignore(ascii_case))]
+    #[token("HALT", |_| (((Op::TRAP as u16) << 12) | (Trap::HALT as u16)), ignore(case))]
     HALT(u16),
 
     /* assembler directives */
-    #[token(".ORIG", ignore(ascii_case))]
+    #[token(".ORIG", ignore(case))]
     ORIG, /* origin */
-    #[token(".FILL", ignore(ascii_case))]
+    #[token(".FILL", ignore(case))]
     FILL, /* fill a single address */
-    #[token(".STRINGZ", ignore(ascii_case))]
+    #[token(".STRINGZ", ignore(case))]
     STRINGZ, /* ascii string literal */
-    #[token(".END", ignore(ascii_case))]
+    #[token(".END", ignore(case))]
     END, /* end of program */
 
     /* registers */
@@ -116,14 +116,16 @@ pub enum Token {
     #[regex("R[0-7]", callback = |lex| {
         (lex.slice().as_bytes()[1] - b'0') as u16
     },
-    ignore(ascii_case))]
+    ignore(case))]
     Reg(u16),
 
     /* literals */
     #[regex(r"#-?[0-9]+|[xX][0-9a-fA-F]{1,4}", callback = |lex| {
         let radix = if lex.slice().chars().nth(0) == Some('#') {10} else {16};
-        let value = i32::from_str_radix(&lex.slice()[1..], radix)?;
-        Ok::<u16, LexError>(value as u16)
+        match i32::from_str_radix(&lex.slice()[1..], radix) {
+            Ok(value) => Ok::<u16, LexError>(value as u16),
+            Err(e) => Err(LexError::ParseIntError(e)),
+        }
     })]
     NumLit(u16),
     /// Returns the original unescaped string as a byte vector.
