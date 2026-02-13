@@ -6,7 +6,7 @@ use thiserror::Error;
 #[derive(Logos, Clone, Debug, PartialEq)]
 #[logos(error = LexError)]
 #[logos(extras = (u32,))] // line number
-#[logos(skip r"([ \t\r]+|;.*)")] // ignore whitespace and comments
+#[logos(skip(r"([ \t\r]+|;.*)", allow_greedy = true))] // ignore whitespace and comments
 pub enum Token {
     /* operations */
     /// ```rust
